@@ -1,10 +1,11 @@
-import { BarChart, LineChart } from 'echarts/charts';
+import { BarChart, HeatmapChart, LineChart } from 'echarts/charts';
 import {
   AriaComponent,
   DatasetComponent,
   GridComponent,
   LegendComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components';
 import * as echarts from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
@@ -14,7 +15,9 @@ import { useEffect, useRef } from 'react';
 echarts.use([
   LineChart,
   BarChart,
+  HeatmapChart,
   GridComponent,
+  VisualMapComponent,
   TooltipComponent,
   LegendComponent,
   DatasetComponent,

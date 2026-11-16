@@ -32,11 +32,28 @@ export class AnalyticsService {
    * any data change bumps the version, so a cached answer is never stale (ADR-0009).
    */
   async overview(auth: AuthContext, query: OverviewQuery): Promise<OverviewResponse> {
+    // A segment filter depends on the latest snapshot's membership, which changes at each run
+    // even without a data change: the run ID is part of the parameters, so of the cache key.
+    const runId = query.segment
+      ? await this.db.run(auth, async (tx) => {
+          const run = await tx.analyticsRun.findFirst({
+            where: { organizationId: auth.organizationId, status: 'SUCCEEDED' },
+            orderBy: { startedAt: 'desc' },
+            select: { id: true },
+          });
+          if (!run) {
+            throw new AppError('CONFLICT', 'Segments are available after the first analytics run');
+          }
+          return run.id;
+        })
+      : undefined;
     const params = {
       start: query.start,
       end: query.end,
       compare: query.compare,
       grain: query.grain,
+      segment: query.segment,
+      runId,
     };
     const paramsHash = hashParams(params);
     const dataVersion = await this.db.run(auth, (tx) =>

@@ -80,6 +80,8 @@ export const en = {
     quarter: 'Quarter',
   },
   overview: {
+    segment: 'Segment',
+    allCustomers: 'All customers',
     title: 'Overview',
     description:
       'Customers and revenue for the selected period. Every number shows its definition.',
@@ -144,6 +146,56 @@ export const en = {
     rules:
       'Countable orders are completed or partially refunded and not deleted. Revenue is net of discounts and refunds, excluding tax. Periods are calendar days in your time zone.',
   },
+  segments: {
+    title: 'Segments',
+    description:
+      'Customers grouped by recency, frequency and spend (RFM). Click a segment to see its customers.',
+    editRules: 'Edit segment rules',
+    noSnapshot:
+      'Segments appear after the first analytics run. It starts automatically after you import data.',
+    asOf: 'As of {{date}} · purchases in the last {{days}} days · rules version {{version}}',
+    segment: 'Segment',
+    customers: 'Customers',
+    revenueShare: 'Share of revenue',
+    avgRecency: 'Last purchase',
+    avgOrders: 'Orders',
+    avgClv: 'Historical CLV',
+    days_one: '{{count}} day ago',
+    days_other: '{{count}} days ago',
+    noPurchases: 'No purchases',
+    noPurchasesHint: 'Registered customers who have not bought yet. Not scored.',
+    matrixTitle: 'Recency × frequency',
+    matrixHint: 'Customers per score combination. Top right: recent and frequent.',
+    recencyScore: 'Recency score',
+    frequencyScore: 'Frequency score',
+    revenueNote: 'Revenue share and averages use net revenue and orders in the last {{days}} days.',
+    editorTitle: 'Segment rules (editing version {{version}})',
+    editorHint:
+      'Rules are checked from top to bottom; a customer gets the first segment that matches. Saving creates a new version and recomputes segments.',
+    lookback: 'Look-back window (days)',
+    scoring: {
+      recency: 'Recency scoring',
+      frequency: 'Frequency scoring',
+      monetary: 'Spend scoring',
+    },
+    methods: { thresholds: 'Fixed thresholds', quintile: 'Quintiles (relative)' },
+    thresholdsHint:
+      'Recency thresholds come from Settings. Frequency scores 2–5 need at least {{thresholds}} orders.',
+    order: 'Order',
+    any: 'Any',
+    preview: 'Preview',
+    previewButton: 'Preview counts',
+    previewNote: 'Preview as of {{date}}. {{none}} customers have no purchases and are not scored.',
+    save: 'Save and apply',
+    uncovered: 'These score combinations have no segment: {{cells}}',
+    moveUp: 'Move {{name}} up',
+    moveDown: 'Move {{name}} down',
+    colorOf: 'Colour of {{name}}',
+    nameOf: 'Name of segment {{key}}',
+    filter: 'Segment',
+    allSegments: 'All segments',
+    scores: 'RFM scores',
+  },
   customers: {
     title: 'Customers',
     description: 'Everyone who has bought from you, with purchase history and spending.',
@@ -162,6 +214,7 @@ export const en = {
     filterBuyers: 'With purchases',
     filterProspects: 'No purchases yet',
     columns: {
+      segment: 'Segment',
       name: 'Customer',
       orders: 'Orders',
       spent: 'Total spent',

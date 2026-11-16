@@ -28,6 +28,7 @@ function customer(overrides: Partial<Customer> = {}): Customer {
       lastOrderAt: '2026-10-01T15:00:00.000Z',
       daysSinceLastOrder: 45,
     },
+    segment: { key: 'loyal', rScore: 4, fScore: 3, mScore: 5, lifecycleStatus: 'ACTIVE' },
     ...overrides,
   };
 }

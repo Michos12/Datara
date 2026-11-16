@@ -181,7 +181,7 @@ All writes to customers/orders/interactions bump `organizations.data_version` an
 | Method | Path                                          | Roles | Description                                                                                                                    |
 | ------ | --------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------ |
 | GET    | `/segments`                                   | OANV  | Segment summary for the latest run: key, name, color, description, customer count, % customers, % revenue, avg R/F/M, avg CLV. |
-| GET    | `/segments/matrix`                            | OANV  | R × F grid counts (heat map).                                                                                                  |
+| GET    | `/segments/matrix`                            | OANV  | Folded into `GET /segments` as `matrix[r-1][f-1]`.                                                                             |
 | GET    | `/segments/migration?from=<runId>&to=<runId>` | OANV  | Flow matrix between two runs (P2).                                                                                             |
 | GET    | `/segments/config`                            | OANV  | Active configuration.                                                                                                          |
 | GET    | `/segments/config/versions`                   | OA    | History.                                                                                                                       |

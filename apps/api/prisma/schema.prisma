@@ -42,13 +42,14 @@ model Organization {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships   Membership[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
-  customers     Customer[]
-  orders        Order[]
-  products      Product[]
-  imports       Import[]
+  memberships    Membership[]
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+  customers      Customer[]
+  orders         Order[]
+  products       Product[]
+  imports        Import[]
+  segmentConfigs SegmentConfig[]
 
   @@map("organizations")
 }
@@ -268,24 +269,27 @@ enum LifecycleStatus {
 
 /// One analytics snapshot of an organization (docs/05-analytics-methodology.md).
 model AnalyticsRun {
-  id                 String    @id @db.Uuid
-  organizationId     String    @map("organization_id") @db.Uuid
+  id                   String    @id @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
   /// Last business date included (organization time zone).
-  asOf               DateTime  @map("as_of") @db.Date
+  asOf                 DateTime  @map("as_of") @db.Date
   /// organizations.data_version the run read; stale once the organization's version moves on.
-  dataVersion        BigInt    @map("data_version")
-  status             RunStatus @default(RUNNING)
+  dataVersion          BigInt    @map("data_version")
+  status               RunStatus @default(RUNNING)
   /// Metric key → definition version used, e.g. { "retention_rate": 1 }
-  definitionVersions Json      @default("{}") @map("definition_versions")
+  definitionVersions   Json      @default("{}") @map("definition_versions")
   /// Analytics settings used (active window, churn threshold, ...)
-  settings           Json      @default("{}")
+  settings             Json      @default("{}")
   /// Data-quality report: excluded rows by reason, guest share, suspected duplicates, outliers.
-  dataQuality        Json?     @map("data_quality")
+  dataQuality          Json?     @map("data_quality")
+  /// Segment configuration used for RFM segments (M4).
+  segmentConfigId      String?   @map("segment_config_id") @db.Uuid
+  segmentConfigVersion Int?      @map("segment_config_version")
   /// Timings and row counts.
-  stats              Json?
-  error              String?
-  startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
-  finishedAt         DateTime? @map("finished_at") @db.Timestamptz(6)
+  stats                Json?
+  error                String?
+  startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt           DateTime? @map("finished_at") @db.Timestamptz(6)
 
   @@index([organizationId, status, startedAt(sort: Desc)])
   @@map("analytics_runs")
@@ -308,8 +312,18 @@ model AnalyticsCustomerMetrics {
   medianGapDays      Decimal?        @map("median_gap_days") @db.Decimal(10, 2)
   lifecycleStatus    LifecycleStatus @map("lifecycle_status")
   historicalClvCents BigInt          @map("historical_clv_cents")
+  /// RFM inputs (docs/05-analytics-methodology.md §6): orders and net revenue in the look-back
+  /// window. Recency is recency_days. Null for customers without purchases.
+  fValue             Int?            @map("f_value")
+  mValueCents        BigInt?         @map("m_value_cents")
+  rScore             Int?            @map("r_score") @db.SmallInt
+  fScore             Int?            @map("f_score") @db.SmallInt
+  mScore             Int?            @map("m_score") @db.SmallInt
+  /// Segment from the run's segment configuration; null = no purchases (not scored).
+  segmentKey         String?         @map("segment_key")
 
   @@id([runId, customerId])
+  @@index([organizationId, runId, segmentKey])
   @@index([organizationId, runId, lifecycleStatus])
   @@index([organizationId, customerId])
   @@map("analytics_customer_metrics")
@@ -353,6 +367,22 @@ model AnalyticsQueryCache {
   @@id([organizationId, metric, paramsHash, dataVersion])
   @@index([organizationId, createdAt])
   @@map("analytics_query_cache")
+}
+
+/// Versioned RFM segmentation settings (SEG-03). Saving creates a new version; exactly one
+/// version per organization is active. Shape: SegmentConfig in packages/contracts.
+model SegmentConfig {
+  id             String       @id @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  version        Int
+  config         Json
+  isActive       Boolean      @default(false) @map("is_active")
+  createdById    String?      @map("created_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, version])
+  @@map("segment_configs")
 }
 
 // ───────────── Operations ─────────────

@@ -5,6 +5,8 @@ export interface OverviewParams {
   end?: string | undefined;
   compare: string;
   grain?: string | undefined;
+  segment?: string | undefined;
+  runId?: string | undefined;
 }
 
 /** Client for the internal Python analytics service (docs/04-api-spec.md §2.13). */
@@ -30,6 +32,10 @@ export class AnalyticsClient {
 
   overview(organizationId: string, params: OverviewParams): Promise<unknown> {
     return this.call('POST', '/internal/query/overview', { organizationId, ...params });
+  }
+
+  segmentPreview(organizationId: string, config: unknown): Promise<unknown> {
+    return this.call('POST', '/internal/segments/preview', { organizationId, config });
   }
 
   definitions(): Promise<unknown> {

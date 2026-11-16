@@ -36,7 +36,14 @@ function ErrorView({ notFound }: { notFound: boolean }) {
   );
 }
 
-const PAGES_BUILT = new Set(['/', '/settings', '/customers', '/imports', '/methodology']);
+const PAGES_BUILT = new Set([
+  '/',
+  '/settings',
+  '/customers',
+  '/imports',
+  '/methodology',
+  '/segments',
+]);
 
 export const routes: RouteObject[] = [
   {
@@ -79,6 +86,13 @@ export const routes: RouteObject[] = [
           { path: 'customers/:id', element: <CustomerProfilePage /> },
           { path: 'imports', element: <ImportsPage /> },
           { path: 'methodology', element: <MethodologyPage /> },
+          {
+            path: 'segments',
+            lazy: () =>
+              import('../features/segments/SegmentsPage').then((m) => ({
+                Component: m.SegmentsPage,
+              })),
+          },
           ...NAV_ITEMS.filter((item) => !PAGES_BUILT.has(item.path)).map((item) => ({
             path: item.path.slice(1),
             element: <ComingSoonPage item={item} />,

@@ -10,11 +10,12 @@ import type { Range } from './periods';
 
 export type Compare = 'previous_period' | 'previous_year' | 'none';
 
-export function useOverview(range: Range, compare: Compare) {
+export function useOverview(range: Range, compare: Compare, segment = '') {
   return useQuery({
-    queryKey: ['analytics', 'overview', range, compare],
+    queryKey: ['analytics', 'overview', range, compare, segment],
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({ start: range.start, end: range.end, compare });
+      if (segment) params.set('segment', segment);
       return apiGet(`/analytics/overview?${params}`, { schema: overviewResponseSchema, signal });
     },
     placeholderData: keepPreviousData,
