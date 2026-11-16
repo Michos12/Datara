@@ -24,7 +24,9 @@ from insights.definitions import DEFINITION_VERSIONS
 from insights.ids import uuid7
 from insights.logging import get_logger
 from insights.metrics.core import Ratio, customer_metrics, lifecycle_counts, period_kpis
+from insights.metrics.rfm import rfm
 from insights.periods import Period, add_months, buckets, today_in
+from insights.segments import load_active_segment_config
 from insights.worker.queue import Job
 
 log = get_logger("insights.worker.recompute")
@@ -103,6 +105,10 @@ def _none(value: Any) -> Any:
     return value
 
 
+def _int(value: Any) -> int | None:
+    return None if value is None or pd.isna(value) else int(value)
+
+
 def _rounded(value: Any, digits: int) -> float | None:
     return None if pd.isna(value) else round(float(value), digits)
 
@@ -122,17 +128,35 @@ def recompute(job: Job, db: Database) -> None:
     with db.tenant_transaction(org) as conn:
         data = load_org(conn, org)
         quality = data_quality(conn, org)
+        segment_config = load_active_segment_config(conn, org)
         today = today_in(data.timezone)
         conn.execute(
             "INSERT INTO analytics_runs (id, organization_id, as_of, data_version, status,"
-            " definition_versions, settings) VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s)",
+            " definition_versions, settings, segment_config_id, segment_config_version)"
+            " VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s, %s, %s)",
             (run_id, org, today, data.data_version, Jsonb(DEFINITION_VERSIONS),
-             Jsonb(data.settings.to_dict())),
+             Jsonb(data.settings.to_dict()),
+             segment_config.id if segment_config else None,
+             segment_config.version if segment_config else None),
         )  # fmt: skip
     loaded = time.perf_counter()
 
     try:
         metrics = customer_metrics(data.purchases, data.customers, today, data.settings)
+        if segment_config:
+            segmented = rfm(
+                data.purchases,
+                data.customers,
+                today,
+                data.settings.recency_cut_points,
+                segment_config.config,
+            )
+            metrics = metrics.merge(
+                segmented.drop(columns=["recency_days"]), on="customer_id", how="left"
+            )
+        else:
+            for column in ("f_value", "m_value", "r_score", "f_score", "m_score", "segment_key"):
+                metrics[column] = None
         series = period_metric_rows(data, today)
         computed = time.perf_counter()
 
@@ -143,6 +167,9 @@ def recompute(job: Job, db: Database) -> None:
                 "customers": len(metrics),
                 "purchase_rows": len(data.purchases),
                 "lifecycle": lifecycle_counts(metrics),
+                "segments": {
+                    str(k): int(v) for k, v in metrics["segment_key"].value_counts().items()
+                },
                 "seconds": {
                     "load": round(loaded - started, 3),
                     "compute": round(computed - loaded, 3),
@@ -174,8 +201,9 @@ def _write_customer_metrics(
         "INSERT INTO analytics_customer_metrics (run_id, customer_id, organization_id,"
         " order_count, total_net_cents, aov_cents, first_order_date, last_order_date,"
         " recency_days, tenure_days, frequency_per_month, median_gap_days, lifecycle_status,"
-        " historical_clv_cents) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        ' %s::"LifecycleStatus", %s)'
+        " historical_clv_cents, f_value, m_value_cents, r_score, f_score, m_score, segment_key)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+        ' %s::"LifecycleStatus", %s, %s, %s, %s, %s, %s, %s)'
     )
     params = []
     for r in metrics.to_dict("records"):
@@ -187,7 +215,9 @@ def _write_customer_metrics(
              None if pd.isna(r["tenure_days"]) else int(r["tenure_days"]),
              _rounded(r["frequency_per_month"], 4),
              _rounded(r["median_gap"], 2),
-             r["lifecycle_status"], int(r["historical_clv"]))
+             r["lifecycle_status"], int(r["historical_clv"]),
+             _int(r["f_value"]), _int(r["m_value"]), _int(r["r_score"]), _int(r["f_score"]),
+             _int(r["m_score"]), _none(r["segment_key"]))
         )  # fmt: skip
     with conn.cursor() as cur:
         for start in range(0, len(params), BATCH):

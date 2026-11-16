@@ -81,6 +81,16 @@ export const customerSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   stats: customerStatsSchema,
+  /** From the latest analytics snapshot; null until a snapshot includes this customer. */
+  segment: z
+    .object({
+      key: z.string().nullable(),
+      rScore: z.number().int().nullable(),
+      fScore: z.number().int().nullable(),
+      mScore: z.number().int().nullable(),
+      lifecycleStatus: z.enum(['PROSPECT', 'ACTIVE', 'AT_RISK', 'CHURNED']),
+    })
+    .nullable(),
 });
 export type Customer = z.infer<typeof customerSchema>;
 
@@ -106,6 +116,11 @@ export const customerListQuerySchema = z.strictObject({
   lastOrderTo: isoDate.optional(),
   hasOrders: z.enum(['true', 'false']).optional(),
   tag: z.string().trim().max(40).optional(),
+  /** Segment key from the latest snapshot, or "no_purchases". */
+  segment: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{1,39}$/)
+    .optional(),
   sort: z.enum(CUSTOMER_SORTS).default('-created_at'),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   cursor: z.string().max(500).optional(),

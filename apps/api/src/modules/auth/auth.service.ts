@@ -12,6 +12,7 @@ import { newId } from '../../core/ids.js';
 import type { AuthContext } from '../../core/request-context.js';
 import { isUniqueViolation, type Database, type Tx } from '../../infra/database.js';
 import { recordAudit } from '../audit/audit.service.js';
+import { seedSegmentConfig } from '../segments/segment.service.js';
 import { makeSlug, toOrganization } from '../organizations/organization.mapper.js';
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from './passwords.js';
 import { generateOpaqueToken, hashToken, type TokenService } from './tokens.js';
@@ -72,6 +73,7 @@ export class AuthService {
         await tx.membership.create({
           data: { id: newId(), organizationId, userId, role: 'OWNER' },
         });
+        await seedSegmentConfig(tx, organizationId, userId);
         await recordAudit(tx, {
           organizationId,
           actorUserId: userId,

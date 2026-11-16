@@ -7,6 +7,7 @@ import { Card, PageHeader } from '../../components/PageHeader';
 import { ApiError, apiRequest } from '../../lib/api';
 import { formatDate, formatDateTime, formatMoney, formatNumber } from '../../lib/format';
 import { useSession } from '../auth/AuthProvider';
+import { SegmentBadge } from '../segments/SegmentBadge';
 import { CustomerFormDialog } from './CustomerForm';
 import { OrderFormDialog } from './OrderForm';
 import { customerKeys, displayName, useCustomer, useCustomerOrders } from './queries';
@@ -72,6 +73,14 @@ export function CustomerProfilePage() {
     [t('customer.city'), [c.city, c.country].filter(Boolean).join(', ') || '—'],
     [t('customer.registeredAt'), formatDate(c.registeredAt, undefined, 'UTC')],
     [t('customer.marketingConsent'), c.marketingConsent ? t('customer.yes') : t('customer.no')],
+    ...(c.segment?.rScore
+      ? ([
+          [
+            t('segments.scores'),
+            `R${c.segment.rScore} · F${c.segment.fScore} · M${c.segment.mScore}`,
+          ],
+        ] as [string, string][])
+      : []),
   ];
 
   return (
@@ -97,6 +106,13 @@ export function CustomerProfilePage() {
           </div>
         }
       />
+      {c.segment && (
+        <div className="-mt-3 mb-4">
+          <Link to={`/customers?segment=${c.segment.key ?? 'no_purchases'}`}>
+            <SegmentBadge segmentKey={c.segment.key} />
+          </Link>
+        </div>
+      )}
       {error && <Alert tone="error">{error}</Alert>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

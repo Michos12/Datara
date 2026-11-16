@@ -7,27 +7,27 @@ const signedIn = { status: 'authenticated' as const, session: makeSession() };
 describe('AppShell', () => {
   it('renders the main navigation with the active page marked', () => {
     mockApi(READY);
-    renderApp('/segments', signedIn);
+    renderApp('/analytics', signedIn);
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(within(nav).getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: 'Segments' })).toHaveAttribute(
+    expect(within(nav).getByRole('link', { name: 'Behavior' })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    expect(screen.getByRole('heading', { name: 'Segments' })).toBeInTheDocument();
-    expect(screen.getByText('Planned for M4')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Behavior' })).toBeInTheDocument();
+    expect(screen.getByText('Planned for M5–M6')).toBeInTheDocument();
   });
 
   it('shows the user, organization and role', () => {
     mockApi(READY);
-    renderApp('/segments', signedIn);
+    renderApp('/analytics', signedIn);
     expect(screen.getByText('Ana Pérez')).toBeInTheDocument();
     expect(screen.getByText('Café Central · Owner')).toBeInTheDocument();
   });
 
   it('shows healthy status when all services are up', async () => {
     mockApi(READY);
-    renderApp('/segments', signedIn);
+    renderApp('/analytics', signedIn);
     expect(await screen.findByText('All systems operational')).toBeInTheDocument();
   });
 
@@ -38,7 +38,7 @@ describe('AppShell', () => {
         body: { status: 'ready', checks: { database: 'up', migrations: 'up', analytics: 'down' } },
       }),
     });
-    renderApp('/segments', signedIn);
+    renderApp('/analytics', signedIn);
     expect(await screen.findByText('Analytics unavailable')).toBeInTheDocument();
   });
 
@@ -52,7 +52,7 @@ describe('AppShell', () => {
         },
       }),
     });
-    renderApp('/segments', signedIn);
+    renderApp('/analytics', signedIn);
     expect(await screen.findByText('API not ready')).toBeInTheDocument();
   });
 

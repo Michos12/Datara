@@ -8,6 +8,7 @@ date ranges reuse one load.
 from __future__ import annotations
 
 from collections import OrderedDict
+from dataclasses import replace
 from datetime import date
 from threading import Lock
 from typing import Any, Protocol
@@ -16,12 +17,15 @@ from uuid import UUID
 from insights.data.loader import OrgData, load_org
 from insights.db import Database
 from insights.metrics.overview import Compare, default_period, overview
-from insights.periods import Grain, Period
+from insights.metrics.rfm import SegmentConfig, rfm, rfm_matrix, segment_counts
+from insights.periods import Grain, Period, today_in
+from insights.segments import latest_run_id, segment_members
 
 
 class OrgLoader(Protocol):
     def version(self, organization_id: UUID) -> int: ...
     def load(self, organization_id: UUID) -> OrgData: ...
+    def members(self, organization_id: UUID, run_id: UUID | None, segment: str) -> set[str]: ...
 
 
 class DatabaseLoader:
@@ -40,6 +44,20 @@ class DatabaseLoader:
     def load(self, organization_id: UUID) -> OrgData:
         with self.db.tenant_transaction(organization_id) as conn:
             return load_org(conn, organization_id)
+
+    def members(self, organization_id: UUID, run_id: UUID | None, segment: str) -> set[str]:
+        with self.db.tenant_transaction(organization_id) as conn:
+            run = run_id or latest_run_id(conn, organization_id)
+            if run is None:
+                raise LookupError("No analytics snapshot yet: segments are not available")
+            return segment_members(conn, organization_id, run, segment)
+
+
+def restrict_to(data: OrgData, customer_ids: set[str]) -> OrgData:
+    """The organization's data limited to some customers (guest orders are dropped)."""
+    purchases = data.purchases[data.purchases["customer_id"].isin(customer_ids)]
+    customers = data.customers[data.customers["customer_id"].isin(customer_ids)]
+    return replace(data, purchases=purchases, customers=customers)
 
 
 class AnalyticsService:
@@ -69,7 +87,42 @@ class AnalyticsService:
         end: date | None,
         compare: Compare,
         grain: Grain | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
     ) -> dict[str, Any]:
         data = self.data(organization_id)
+        if segment:
+            data = restrict_to(data, self.loader.members(organization_id, run_id, segment))
         period = Period(start, end) if start and end else default_period(data.timezone)
-        return overview(data, period, compare, grain)
+        result = overview(data, period, compare, grain)
+        result["meta"]["filters"] = {
+            "segment": segment,
+            "segmentRunId": str(run_id) if run_id else None,
+        }
+        if segment:
+            result["meta"]["warnings"].append(
+                {
+                    "code": "SEGMENT_FILTER",
+                    "message": "Filtered to customers in this segment as of the latest snapshot. "
+                    "Guest orders are excluded.",
+                }
+            )
+        return result
+
+    def segment_preview(self, organization_id: UUID, config: dict[str, Any]) -> dict[str, Any]:
+        """Segment counts a configuration would produce today, without saving anything."""
+        data = self.data(organization_id)
+        today = today_in(data.timezone)
+        segmented = rfm(
+            data.purchases,
+            data.customers,
+            today,
+            data.settings.recency_cut_points,
+            SegmentConfig.from_dict(config),
+        )
+        return {
+            "asOf": today.isoformat(),
+            "counts": segment_counts(segmented),
+            "noPurchases": int(segmented["segment_key"].isna().sum()),
+            "matrix": rfm_matrix(segmented),
+        }

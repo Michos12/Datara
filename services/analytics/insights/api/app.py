@@ -32,6 +32,8 @@ class OverviewQuery(BaseModel):
     end: date | None = None
     compare: Literal["previous_period", "previous_year", "none"] = "previous_period"
     grain: Literal["day", "week", "month", "quarter"] | None = None
+    segment: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{1,39}$")
+    run_id: UUID | None = Field(default=None, alias="runId")
 
     @model_validator(mode="after")
     def check_range(self) -> "OverviewQuery":
@@ -45,6 +47,12 @@ class OverviewQuery(BaseModel):
         return self
 
 
+class SegmentPreviewQuery(BaseModel):
+    organization_id: UUID = Field(alias="organizationId")
+    # Validated by the API against packages/contracts segmentConfigSchema before forwarding.
+    config: dict[str, Any]
+
+
 class AnalyticsQueries(Protocol):
     def overview(
         self,
@@ -53,7 +61,11 @@ class AnalyticsQueries(Protocol):
         end: date | None,
         compare: Literal["previous_period", "previous_year", "none"],
         grain: Literal["day", "week", "month", "quarter"] | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
     ) -> dict[str, Any]: ...
+
+    def segment_preview(self, organization_id: UUID, config: dict[str, Any]) -> dict[str, Any]: ...
 
 
 def create_app(
@@ -112,8 +124,27 @@ def create_app(
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Analytics not configured")
         try:
             return analytics.overview(
-                query.organization_id, query.start, query.end, query.compare, query.grain
+                query.organization_id,
+                query.start,
+                query.end,
+                query.compare,
+                query.grain,
+                query.segment,
+                query.run_id,
             )
+        except LookupError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.post("/internal/segments/preview", dependencies=[Depends(require_service_token)])
+    def segments_preview(query: SegmentPreviewQuery) -> dict[str, Any]:
+        if analytics is None:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Analytics not configured")
+        try:
+            return analytics.segment_preview(query.organization_id, query.config)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid configuration"
+            ) from exc
         except LookupError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 

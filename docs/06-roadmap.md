@@ -179,6 +179,18 @@ gantt
 
 ## M4 — RFM segmentation (≈2 weeks)
 
+> **Status (2026-11-16): implemented.** Notes on what changed from the plan:
+>
+> - The configuration chooses thresholds or quintiles per dimension. Recency thresholds are the
+>   organization's `recencyCutPoints` setting; frequency (minimum orders for scores 2–5) and
+>   monetary thresholds live in the configuration. Default: recency and frequency by
+>   thresholds, monetary by quintile.
+> - Every organization gets version 1 at signup; the migration backfilled existing ones.
+>   Saving creates a new version and recomputes immediately.
+> - The R × F matrix is part of `GET /segments` (no separate endpoint).
+> - Segment filters (customer list, Overview) use the latest successful snapshot; the Overview
+>   cache key includes that snapshot's ID, so a new run never serves stale membership.
+
 **Functional requirements:** SEG-01 … 04, SEG-06, SEG-07; CUS-04 (segment on profile); OVR-06 (segment filter).
 
 **Technical implementation**

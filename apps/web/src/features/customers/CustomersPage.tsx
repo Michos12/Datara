@@ -1,13 +1,15 @@
 import type { CustomerSort } from '@ci/contracts';
 import { useDeferredValue, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button, SelectField, TextField } from '../../components/forms';
 import { Card, PageHeader } from '../../components/PageHeader';
 import { apiDownload } from '../../lib/api';
 import { formatDate, formatMoney, formatNumber } from '../../lib/format';
 import { useSession } from '../auth/AuthProvider';
 import { CustomerFormDialog } from './CustomerForm';
+import { SegmentBadge } from '../segments/SegmentBadge';
+import { useSegmentConfig } from '../segments/queries';
 import { DemoDataButton } from './DemoDataButton';
 import { displayName, useCustomerList, type CustomerFilters } from './queries';
 
@@ -31,13 +33,22 @@ export function CustomersPage() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<CustomerSort>('-created_at');
   const [hasOrders, setHasOrders] = useState<CustomerFilters['hasOrders']>('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const segment = searchParams.get('segment') ?? '';
+  const setSegment = (value: string) =>
+    setSearchParams((params) => {
+      if (value) params.set('segment', value);
+      else params.delete('segment');
+      return params;
+    });
+  const segmentConfig = useSegmentConfig();
   const [creating, setCreating] = useState(false);
   const q = useDeferredValue(search.trim());
-  const filters = { q, sort, hasOrders };
+  const filters = { q, sort, hasOrders, segment };
   const list = useCustomerList(filters);
 
   const customers = list.data?.pages.flatMap((p) => p.data) ?? [];
-  const filtering = Boolean(q || hasOrders);
+  const filtering = Boolean(q || hasOrders || segment);
   const isEmpty = list.isSuccess && customers.length === 0;
 
   return (
@@ -62,6 +73,7 @@ export function CustomersPage() {
                   const params = new URLSearchParams({ sort });
                   if (q) params.set('q', q);
                   if (hasOrders) params.set('hasOrders', hasOrders);
+                  if (segment) params.set('segment', segment);
                   void apiDownload(`/exports/customers.csv?${params}`, 'customers.csv');
                 }}
               >
@@ -74,7 +86,7 @@ export function CustomersPage() {
       />
 
       <Card className="mb-4 p-4">
-        <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr]">
+        <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr]">
           <TextField
             label={t('customers.search')}
             type="search"
@@ -89,6 +101,19 @@ export function CustomersPage() {
               { value: '', label: t('customers.filterAll') },
               { value: 'true', label: t('customers.filterBuyers') },
               { value: 'false', label: t('customers.filterProspects') },
+            ]}
+          />
+          <SelectField
+            label={t('segments.filter')}
+            value={segment}
+            onChange={(e) => setSegment(e.target.value)}
+            options={[
+              { value: '', label: t('segments.allSegments') },
+              ...(segmentConfig.data?.config.rules ?? []).map((r) => ({
+                value: r.key,
+                label: r.name,
+              })),
+              { value: 'no_purchases', label: t('segments.noPurchases') },
             ]}
           />
           <SelectField
@@ -127,6 +152,9 @@ export function CustomersPage() {
                   <th scope="col" className="px-4 py-3 font-medium">
                     {t('customers.columns.name')}
                   </th>
+                  <th scope="col" className="hidden px-4 py-3 font-medium lg:table-cell">
+                    {t('customers.columns.segment')}
+                  </th>
                   <th scope="col" className="px-4 py-3 text-right font-medium">
                     {t('customers.columns.orders')}
                   </th>
@@ -159,6 +187,9 @@ export function CustomersPage() {
                       <div className="text-xs text-ink-subtle">
                         {[c.email, c.externalId].filter(Boolean).join(' · ')}
                       </div>
+                    </td>
+                    <td className="hidden px-4 py-3 lg:table-cell">
+                      {c.segment ? <SegmentBadge segmentKey={c.segment.key} /> : '—'}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {formatNumber(c.stats.orderCount)}

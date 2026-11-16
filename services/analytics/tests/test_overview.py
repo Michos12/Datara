@@ -81,6 +81,9 @@ class CountingLoader:
         self.loads += 1
         return org_data(self.version_value)
 
+    def members(self, organization_id: UUID, run_id: UUID | None, segment: str) -> set[str]:
+        return {"A", "B"} if segment == "loyal" else set()
+
 
 def test_service_reuses_loaded_data_until_the_version_changes() -> None:
     loader = CountingLoader()
@@ -152,3 +155,24 @@ def test_definitions_endpoint_lists_registry() -> None:
     res = client().get("/internal/definitions", headers={"X-Service-Token": TOKEN})
     keys = {d["key"] for d in res.json()["data"]}
     assert {"retention_rate", "churn_rate", "historical_clv"} <= keys
+
+
+def test_segment_filter_restricts_customers_and_drops_guests() -> None:
+    service = AnalyticsService(CountingLoader())
+    org = UUID("0193a2b4-0000-7000-8000-000000000001")
+    result = service.overview(org, MARCH.start, MARCH.end, "none", None, segment="loyal")
+    # Members A and B: March revenue is A's 300 only (guest orders and C excluded).
+    assert kpi(result, "revenue_net")["value"] == 300
+    assert kpi(result, "total_customers")["value"] == 2
+    assert result["meta"]["filters"]["segment"] == "loyal"
+    assert any(w["code"] == "SEGMENT_FILTER" for w in result["meta"]["warnings"])
+
+
+def test_segment_preview_counts() -> None:
+    service = AnalyticsService(CountingLoader())
+    org = UUID("0193a2b4-0000-7000-8000-000000000001")
+    from tests.test_rfm import DEFAULT
+
+    preview = service.segment_preview(org, DEFAULT)
+    assert sum(preview["counts"].values()) + preview["noPurchases"] == 6
+    assert len(preview["matrix"]) == 5

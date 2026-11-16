@@ -9,6 +9,11 @@ export const overviewQuerySchema = z
     end: z.iso.date().optional(),
     compare: z.enum(COMPARE_VALUES).default('previous_period'),
     grain: z.enum(GRAIN_VALUES).optional(),
+    /** Limit to customers in this segment as of the latest snapshot ("no_purchases" allowed). */
+    segment: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{1,39}$/)
+      .optional(),
   })
   .refine((q) => (q.start === undefined) === (q.end === undefined), {
     message: 'Provide both start and end, or neither',
@@ -46,6 +51,9 @@ export const analyticsMetaSchema = z.object({
   computedAt: z.string(),
   dataVersion: z.number().int(),
   warnings: z.array(analyticsWarningSchema),
+  filters: z
+    .object({ segment: z.string().nullable(), segmentRunId: z.string().nullable() })
+    .optional(),
   /** Set by the API: whether the response came from the query cache. */
   cached: z.boolean().optional(),
 });

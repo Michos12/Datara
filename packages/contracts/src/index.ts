@@ -5,3 +5,4 @@ export * from './auth.js';
 export * from './customers.js';
 export * from './imports.js';
 export * from './analytics.js';
+export * from './segments.js';

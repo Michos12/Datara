@@ -16,6 +16,7 @@ import {
   formatPercent,
 } from '../../lib/format';
 import { useSession } from '../auth/AuthProvider';
+import { useSegmentConfig } from '../segments/queries';
 import { KpiCard } from './KpiCard';
 import { lastDay, PRESETS, resolvePreset, todayIn, type Preset, type Range } from './periods';
 import { useAnalyticsStatus, useDefinitions, useOverview, type Compare } from './queries';
@@ -49,10 +50,12 @@ export function OverviewPage() {
   const [preset, setPreset] = useState<Preset>('last_month');
   const [custom, setCustom] = useState<Range>(() => resolvePreset('last_month', today));
   const [compare, setCompare] = useState<Compare>('previous_period');
+  const [segment, setSegment] = useState('');
+  const segmentConfig = useSegmentConfig();
   const range = preset === 'custom' ? custom : resolvePreset(preset, today);
   const validRange = range.end > range.start;
 
-  const overview = useOverview(range, compare);
+  const overview = useOverview(range, compare, segment);
   const status = useAnalyticsStatus();
   const definitions = useDefinitions();
   const [recomputeError, setRecomputeError] = useState<string | null>(null);
@@ -122,7 +125,7 @@ export function OverviewPage() {
       <PageHeader title={t('overview.title')} description={t('overview.description')} />
 
       <Card className="mb-4 p-4">
-        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
           <SelectField
             label={t('overview.period')}
             value={preset}
@@ -138,6 +141,18 @@ export function OverviewPage() {
             value={compare}
             onChange={(e) => setCompare(e.target.value as Compare)}
             options={COMPARES.map((c) => ({ value: c, label: t(`overview.compares.${c}`) }))}
+          />
+          <SelectField
+            label={t('overview.segment')}
+            value={segment}
+            onChange={(e) => setSegment(e.target.value)}
+            options={[
+              { value: '', label: t('overview.allCustomers') },
+              ...(segmentConfig.data?.config.rules ?? []).map((r) => ({
+                value: r.key,
+                label: r.name,
+              })),
+            ]}
           />
           <div className="flex items-end text-xs text-ink-muted md:pb-2.5">
             {formatDate(range.start, undefined, 'UTC')} –{' '}
@@ -173,7 +188,9 @@ export function OverviewPage() {
         <Alert tone="error">
           {overview.error instanceof ApiError && overview.error.status === 503
             ? t('overview.analyticsDown')
-            : t('errors.generic')}
+            : overview.error instanceof ApiError && overview.error.status === 409
+              ? t('segments.noSnapshot')
+              : t('errors.generic')}
         </Alert>
       )}
 

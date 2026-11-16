@@ -24,6 +24,8 @@ import { importRouter } from './modules/imports/import.routes.js';
 import { ImportService } from './modules/imports/import.service.js';
 import { jobRouter } from './modules/jobs/job.routes.js';
 import { OrderService } from './modules/orders/order.service.js';
+import { segmentRouter } from './modules/segments/segment.routes.js';
+import { SegmentService } from './modules/segments/segment.service.js';
 import { organizationRouter } from './modules/organizations/organization.routes.js';
 import { OrganizationService } from './modules/organizations/organization.service.js';
 
@@ -106,6 +108,7 @@ export function createApp(deps: AppDeps): Express {
         tokens,
       }),
     );
+    v1.use(segmentRouter({ segments: new SegmentService(deps.database, analyticsClient), tokens }));
     v1.use(exportRouter({ db: deps.database, tokens, ...(deps.now ? { now: deps.now } : {}) }));
   }
 

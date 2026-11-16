@@ -11,8 +11,8 @@ import {
 } from '../../infra/database.js';
 
 /**
- * Customer reads with purchase statistics from countable orders. These aggregates are the
- * temporary source until analytics snapshots arrive in M3 (docs/06-roadmap.md).
+ * Customer reads. Purchase statistics are computed live from countable orders (always current);
+ * segment, RFM scores and lifecycle status come from the latest successful analytics snapshot.
  */
 
 interface CustomerRow {
@@ -34,6 +34,11 @@ interface CustomerRow {
   total_net: bigint;
   first_at: Date | null;
   last_at: Date | null;
+  segment_key: string | null;
+  r_score: number | null;
+  f_score: number | null;
+  m_score: number | null;
+  lifecycle_status: 'PROSPECT' | 'ACTIVE' | 'AT_RISK' | 'CHURNED' | null;
   sort_value?: unknown;
 }
 
@@ -81,7 +86,12 @@ export function decodeCursor(value: string): Cursor {
 
 function statsCte(organizationId: string, customerId?: string): SqlFragment {
   return sql`
-    WITH stats AS (
+    WITH latest_run AS (
+      SELECT id FROM analytics_runs
+      WHERE organization_id = ${organizationId}::uuid AND status = 'SUCCEEDED'
+      ORDER BY started_at DESC LIMIT 1
+    ),
+    stats AS (
       SELECT o.customer_id,
              count(*)::int            AS order_count,
              sum(o.net_cents)::bigint AS total_net,
@@ -98,7 +108,13 @@ const SELECT_COLUMNS = sql`
   c.id, c.external_id, c.first_name, c.last_name, c.email::text AS email, c.phone, c.country,
   c.region, c.city, c.registered_at, c.tags, c.marketing_consent, c.created_at, c.updated_at,
   coalesce(s.order_count, 0) AS order_count, coalesce(s.total_net, 0)::bigint AS total_net,
-  s.first_at, s.last_at`;
+  s.first_at, s.last_at, m.segment_key, m.r_score, m.f_score, m.m_score,
+  m.lifecycle_status::text AS lifecycle_status`;
+
+/** Joins the latest snapshot's metrics (no rows yet → nulls). */
+const SNAPSHOT_JOIN = sql`
+  LEFT JOIN analytics_customer_metrics m
+    ON m.customer_id = c.id AND m.run_id = (SELECT id FROM latest_run)`;
 
 export function toStats(
   row: Pick<CustomerRow, 'order_count' | 'total_net' | 'first_at' | 'last_at'>,
@@ -135,6 +151,15 @@ export function toCustomer(row: CustomerRow, now: number): Customer {
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     stats: toStats(row, now),
+    segment: row.lifecycle_status
+      ? {
+          key: row.segment_key,
+          rScore: row.r_score,
+          fScore: row.f_score,
+          mScore: row.m_score,
+          lifecycleStatus: row.lifecycle_status,
+        }
+      : null,
   };
 }
 
@@ -165,6 +190,11 @@ export async function listCustomers(
   if (query.hasOrders === 'true') filters.push(sql`s.order_count > 0`);
   if (query.hasOrders === 'false') filters.push(sql`s.order_count IS NULL`);
   if (query.tag) filters.push(sql`${query.tag} = ANY(c.tags)`);
+  if (query.segment === 'no_purchases') {
+    filters.push(sql`m.lifecycle_status IS NOT NULL AND m.segment_key IS NULL`);
+  } else if (query.segment) {
+    filters.push(sql`m.segment_key = ${query.segment}`);
+  }
   if (query.cursor) {
     const cursor = decodeCursor(query.cursor);
     const value = sql`${cursor.v}::${raw(sort.cast)}`;
@@ -179,7 +209,7 @@ export async function listCustomers(
   const rows = await tx.$queryRaw<CustomerRow[]>`
     ${statsCte(organizationId)}
     SELECT ${SELECT_COLUMNS}, (${raw(sort.expr)})::text AS sort_value
-    FROM customers c LEFT JOIN stats s ON s.customer_id = c.id
+    FROM customers c LEFT JOIN stats s ON s.customer_id = c.id ${SNAPSHOT_JOIN}
     WHERE ${join(filters, ' AND ')}
     ORDER BY ${raw(sort.expr)} ${direction}, c.id ${direction}
     LIMIT ${query.limit + 1}`;
@@ -205,7 +235,7 @@ export async function getCustomer(
   const rows = await tx.$queryRaw<CustomerRow[]>`
     ${statsCte(organizationId, customerId)}
     SELECT ${SELECT_COLUMNS}
-    FROM customers c LEFT JOIN stats s ON s.customer_id = c.id
+    FROM customers c LEFT JOIN stats s ON s.customer_id = c.id ${SNAPSHOT_JOIN}
     WHERE c.organization_id = ${organizationId}::uuid AND c.id = ${customerId}::uuid
       ${includeDeleted ? empty : sql`AND c.deleted_at IS NULL`}`;
   return rows[0] ? toCustomer(rows[0], now) : null;

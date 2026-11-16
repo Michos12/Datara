@@ -11,6 +11,7 @@ export interface CustomerFilters {
   q: string;
   sort: CustomerSort;
   hasOrders: '' | 'true' | 'false';
+  segment: string;
 }
 
 export const customerKeys = {
@@ -28,6 +29,7 @@ export function useCustomerList(filters: CustomerFilters) {
       const params = new URLSearchParams({ sort: filters.sort, limit: '50' });
       if (filters.q) params.set('q', filters.q);
       if (filters.hasOrders) params.set('hasOrders', filters.hasOrders);
+      if (filters.segment) params.set('segment', filters.segment);
       if (pageParam) params.set('cursor', pageParam);
       return apiGet(`/customers?${params}`, { schema: customerPageSchema, signal });
     },
