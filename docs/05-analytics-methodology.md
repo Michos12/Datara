@@ -95,6 +95,9 @@ churn_rate(P)     = |churned(P)| / |base(P)|
 - **Churn is recognised with delay**: a customer who stopped buying in January is counted as churned in July (with a 180-day threshold). The UI explains this.
 - **Churn rate ≠ 1 − retention rate** in this design. Retention measures repeat buying between adjacent periods; churn measures crossing the inactivity threshold. Showing both is intentional; the tooltip explains the difference. Presenting `1 − retention` as "churn" would overstate churn badly for infrequent buyers.
 - A churned customer who buys again is **reactivated** (`reactivated_customers` metric) and becomes alive again.
+- **Series** use whole buckets (weeks, months, quarters): a requested range is widened to bucket boundaries so every bucket is compared with a full previous one. Each rate carries a 95% Wilson interval and the low-sample flag (§9).
+- **Churned-customer list** for a range: customers whose churn date falls in it (and has passed). Over one bucket this is exactly the set the churn rate counts.
+- **Churn by segment**: customers alive at the range start, grouped by their RFM segment recomputed as of the day before the range (active rules), so the breakdown shows where they stood before lapsing.
 - Contractual (subscription) churn — `cancelled subscriptions / subscriptions active at start` — is deferred until a `subscriptions` model exists ([OPEN-1]).
 
 ### 4.3 Lifecycle status (per customer, at `as_of`)
@@ -204,7 +207,7 @@ Per customer: raw R/F/M, scores, segment key, config version. Per segment: count
 
 - **Cohort** = calendar month (org time zone) of `first(c)`. Option: registration month, for businesses that register before buying.
 - **Period index** `k` = whole months between the cohort month and the order month (0 = acquisition month).
-- **Cells** (stored in `analytics_cohort_cells`):
+- **Cells** (computed on read from the cached organization frame and served through the query cache; the `analytics_cohort_cells` table in the data model is not needed yet):
   - `cohort_size` = customers in the cohort
   - `active_customers(c, k)` = distinct cohort customers with ≥1 order in month `cohort + k`
   - `net_cents(c, k)` = their net revenue in that month

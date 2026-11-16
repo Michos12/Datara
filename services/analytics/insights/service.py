@@ -16,6 +16,12 @@ from uuid import UUID
 
 from insights.data.loader import OrgData, load_org
 from insights.db import Database
+from insights.metrics.behavior_queries import (
+    churn_query,
+    churned_customers_query,
+    cohorts_query,
+    retention_query,
+)
 from insights.metrics.overview import Compare, default_period, overview
 from insights.metrics.rfm import SegmentConfig, rfm, rfm_matrix, segment_counts
 from insights.periods import Grain, Period, today_in
@@ -60,6 +66,25 @@ def restrict_to(data: OrgData, customer_ids: set[str]) -> OrgData:
     return replace(data, purchases=purchases, customers=customers)
 
 
+def with_filters(
+    result: dict[str, Any], segment: str | None, run_id: UUID | None
+) -> dict[str, Any]:
+    """Record the segment filter in the envelope and warn that it is applied retroactively."""
+    result["meta"]["filters"] = {
+        "segment": segment,
+        "segmentRunId": str(run_id) if run_id else None,
+    }
+    if segment:
+        result["meta"]["warnings"].append(
+            {
+                "code": "SEGMENT_FILTER",
+                "message": "Filtered to customers in this segment as of the latest snapshot "
+                "(today's segment, applied to past periods). Guest orders are excluded.",
+            }
+        )
+    return result
+
+
 class AnalyticsService:
     def __init__(self, loader: OrgLoader, cache_size: int = 8) -> None:
         self.loader = loader
@@ -90,24 +115,61 @@ class AnalyticsService:
         segment: str | None = None,
         run_id: UUID | None = None,
     ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        period = Period(start, end) if start and end else default_period(data.timezone)
+        return with_filters(overview(data, period, compare, grain), segment, run_id)
+
+    def scoped(self, organization_id: UUID, segment: str | None, run_id: UUID | None) -> OrgData:
+        """The organization's data, limited to a segment's members when one is given."""
         data = self.data(organization_id)
         if segment:
             data = restrict_to(data, self.loader.members(organization_id, run_id, segment))
-        period = Period(start, end) if start and end else default_period(data.timezone)
-        result = overview(data, period, compare, grain)
-        result["meta"]["filters"] = {
-            "segment": segment,
-            "segmentRunId": str(run_id) if run_id else None,
-        }
-        if segment:
-            result["meta"]["warnings"].append(
-                {
-                    "code": "SEGMENT_FILTER",
-                    "message": "Filtered to customers in this segment as of the latest snapshot. "
-                    "Guest orders are excluded.",
-                }
-            )
-        return result
+        return data
+
+    def retention(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        grain: Grain | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        return with_filters(retention_query(data, period, grain), segment, run_id)
+
+    def churn(
+        self,
+        organization_id: UUID,
+        config: dict[str, Any],
+        period: Period | None,
+        grain: Grain | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        result = churn_query(data, SegmentConfig.from_dict(config), period, grain)
+        return with_filters(result, segment, run_id)
+
+    def churned_customers(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        return with_filters(churned_customers_query(data, period), segment, run_id)
+
+    def cohorts(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        max_periods: int,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        return with_filters(cohorts_query(data, period, max_periods), segment, run_id)
 
     def segment_preview(self, organization_id: UUID, config: dict[str, Any]) -> dict[str, Any]:
         """Segment counts a configuration would produce today, without saving anything."""

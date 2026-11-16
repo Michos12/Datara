@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   definitionsResponseSchema,
   overviewResponseSchema,
@@ -7,12 +6,12 @@ import {
   type OverviewResponse,
 } from '@ci/contracts';
 import type { z } from 'zod';
-import { AppError } from '../../core/errors.js';
 import type { AuthContext } from '../../core/request-context.js';
 import type { AnalyticsClient } from '../../infra/analytics-client.js';
-import { toNumber, type Database, type Tx } from '../../infra/database.js';
+import { toNumber, type Database } from '../../infra/database.js';
 import { scheduleRecompute } from '../../infra/job-queue.js';
 import { recordAudit } from '../audit/audit.service.js';
+import { cachedQuery, currentDataVersion, segmentRunId } from './query-cache.js';
 
 /** The analytics module is a facade: it caches and serves results, it never computes metrics. */
 export class AnalyticsService {
@@ -27,26 +26,9 @@ export class AnalyticsService {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /**
-   * Business Overview for a period. Results are cached by (organization, params, data_version):
-   * any data change bumps the version, so a cached answer is never stale (ADR-0009).
-   */
+  /** Business Overview for a period, served through the query cache. */
   async overview(auth: AuthContext, query: OverviewQuery): Promise<OverviewResponse> {
-    // A segment filter depends on the latest snapshot's membership, which changes at each run
-    // even without a data change: the run ID is part of the parameters, so of the cache key.
-    const runId = query.segment
-      ? await this.db.run(auth, async (tx) => {
-          const run = await tx.analyticsRun.findFirst({
-            where: { organizationId: auth.organizationId, status: 'SUCCEEDED' },
-            orderBy: { startedAt: 'desc' },
-            select: { id: true },
-          });
-          if (!run) {
-            throw new AppError('CONFLICT', 'Segments are available after the first analytics run');
-          }
-          return run.id;
-        })
-      : undefined;
+    const runId = await segmentRunId(this.db, auth, query.segment);
     const params = {
       start: query.start,
       end: query.end,
@@ -55,59 +37,9 @@ export class AnalyticsService {
       segment: query.segment,
       runId,
     };
-    const paramsHash = hashParams(params);
-    const dataVersion = await this.db.run(auth, (tx) =>
-      currentDataVersion(tx, auth.organizationId),
+    return cachedQuery(this.db, auth, 'overview', params, overviewResponseSchema, () =>
+      this.client.overview(auth.organizationId, params),
     );
-
-    const hit = await this.db.run(auth, (tx) =>
-      tx.analyticsQueryCache.findUnique({
-        where: {
-          organizationId_metric_paramsHash_dataVersion: {
-            organizationId: auth.organizationId,
-            metric: 'overview',
-            paramsHash,
-            dataVersion: BigInt(dataVersion),
-          },
-        },
-      }),
-    );
-    if (hit) {
-      const cached = overviewResponseSchema.parse(hit.result);
-      return { ...cached, meta: { ...cached.meta, cached: true } };
-    }
-
-    const result = overviewResponseSchema.parse(
-      await this.client.overview(auth.organizationId, params),
-    );
-    await this.db.run(auth, async (tx) => {
-      // Store under the version the analytics service actually read; drop older versions.
-      await tx.analyticsQueryCache.deleteMany({
-        where: {
-          organizationId: auth.organizationId,
-          dataVersion: { lt: BigInt(result.meta.dataVersion) },
-        },
-      });
-      await tx.analyticsQueryCache.upsert({
-        where: {
-          organizationId_metric_paramsHash_dataVersion: {
-            organizationId: auth.organizationId,
-            metric: 'overview',
-            paramsHash,
-            dataVersion: BigInt(result.meta.dataVersion),
-          },
-        },
-        create: {
-          organizationId: auth.organizationId,
-          metric: 'overview',
-          paramsHash,
-          dataVersion: BigInt(result.meta.dataVersion),
-          result: result as object,
-        },
-        update: { result: result as object },
-      });
-    });
-    return { ...result, meta: { ...result.meta, cached: false } };
   }
 
   /** The metric registry (rarely changes: cached for 10 minutes per API process). */
@@ -189,24 +121,4 @@ export function splitPending(
   return job.status === 'RUNNING' || job.run_after.getTime() <= now + SOON_MS
     ? { pending: { runAfter }, nextRunAt: null }
     : { pending: null, nextRunAt: runAfter };
-}
-
-async function currentDataVersion(tx: Tx, organizationId: string): Promise<number> {
-  const org = await tx.organization.findUnique({
-    where: { id: organizationId },
-    select: { dataVersion: true },
-  });
-  if (!org) throw new AppError('NOT_FOUND', 'Organization not found');
-  return toNumber(org.dataVersion);
-}
-
-export function hashParams(params: Record<string, unknown>): string {
-  const canonical = JSON.stringify(
-    Object.fromEntries(
-      Object.entries(params)
-        .filter(([, v]) => v !== undefined)
-        .sort(([a], [b]) => a.localeCompare(b)),
-    ),
-  );
-  return createHash('sha256').update(canonical).digest('hex').slice(0, 32);
 }

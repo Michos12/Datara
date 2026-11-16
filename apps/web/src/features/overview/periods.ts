@@ -68,3 +68,13 @@ export function resolvePreset(preset: Exclude<Preset, 'custom'>, today: string):
 export function lastDay(range: Range): string {
   return addDays(range.end, -1);
 }
+
+/** Short label for a chart bucket starting on `period` ("Oct 26" for months, "Oct 6" for days). */
+export function bucketLabel(period: string, grain: string, locale?: string): string {
+  const date = new Date(`${period}T00:00:00Z`);
+  const opts: Intl.DateTimeFormatOptions =
+    grain === 'month' || grain === 'quarter'
+      ? { month: 'short', year: '2-digit', timeZone: 'UTC' }
+      : { month: 'short', day: 'numeric', timeZone: 'UTC' };
+  return new Intl.DateTimeFormat(locale, opts).format(date);
+}

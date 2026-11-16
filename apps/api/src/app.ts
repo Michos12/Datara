@@ -12,6 +12,7 @@ import type { Database } from './infra/database.js';
 import { FileStorage } from './infra/storage.js';
 import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { AnalyticsService } from './modules/analytics/analytics.service.js';
+import { BehaviorService } from './modules/analytics/behavior.service.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { DEFAULT_AUTH_RATE_LIMITS, type AuthRateLimits } from './modules/auth/rate-limits.js';
@@ -102,13 +103,15 @@ export function createApp(deps: AppDeps): Express {
     v1.use(jobRouter({ db: deps.database, tokens }));
     const analyticsClient =
       deps.analytics ?? new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);
+    const segments = new SegmentService(deps.database, analyticsClient);
     v1.use(
       analyticsRouter({
         analytics: new AnalyticsService(deps.database, analyticsClient, deps.now),
+        behavior: new BehaviorService(deps.database, analyticsClient, segments),
         tokens,
       }),
     );
-    v1.use(segmentRouter({ segments: new SegmentService(deps.database, analyticsClient), tokens }));
+    v1.use(segmentRouter({ segments, tokens }));
     v1.use(exportRouter({ db: deps.database, tokens, ...(deps.now ? { now: deps.now } : {}) }));
   }
 

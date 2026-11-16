@@ -121,6 +121,35 @@ DEFINITIONS: tuple[MetricDefinition, ...] = (
         AS_OF,
         "Where each customer stands today, from days since their last purchase.",
     ),
+    MetricDefinition(
+        "reactivated_customers", "Reactivated customers", 1, "measured", "count",
+        "Customers with a countable order in the period whose previous purchase was more than "
+        "settings.churnDays earlier: they had churned and came back.",
+        PERIOD,
+        "Lost customers who bought again.",
+    ),
+    MetricDefinition(
+        "cohort_retention", "Cohort retention", 1, "measured", "ratio",
+        "Cohort = calendar month of a customer's first countable order. Cell (c, k) = distinct "
+        "cohort customers with an order in month c + k ÷ cohort size. Shown only once month "
+        "c + k is over; the average row is weighted by cohort size.",
+        "Months since acquisition; k = 0 is the acquisition month (always 100%).",
+        "Of the customers acquired in a month, the share still buying k months later.",
+    ),
+    MetricDefinition(
+        "cohort_revenue_per_customer", "Revenue per cohort customer", 1, "measured", "money",
+        "Net revenue of the cohort in month c + k ÷ the original cohort size (customers who "
+        "stopped buying stay in the denominator).",
+        "Months since acquisition, complete months only.",
+        "What each acquired customer brought in, month by month.",
+    ),
+    MetricDefinition(
+        "cohort_cumulative_revenue", "Cumulative revenue per cohort customer", 1, "measured",
+        "money",
+        "Running sum over k of revenue per original cohort customer.",
+        "Months since acquisition, complete months only.",
+        "Total spend per acquired customer so far: a measured, cohort-level CLV.",
+    ),
 )  # fmt: skip
 
 DEFINITION_VERSIONS: dict[str, int] = {d.key: d.version for d in DEFINITIONS}

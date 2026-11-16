@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { buildStackedBarOption } from '../../charts/stackedBars';
 import { buildTimeSeriesOption } from '../../charts/timeSeries';
+import { chartColors } from '../../charts/colors';
 import { cssToken, EChart } from '../../components/EChart';
 import { Alert, Button, SelectField, TextField } from '../../components/forms';
 import { Card, PageHeader } from '../../components/PageHeader';
@@ -18,27 +19,18 @@ import {
 import { useSession } from '../auth/AuthProvider';
 import { useSegmentConfig } from '../segments/queries';
 import { KpiCard } from './KpiCard';
-import { lastDay, PRESETS, resolvePreset, todayIn, type Preset, type Range } from './periods';
+import {
+  bucketLabel,
+  lastDay,
+  PRESETS,
+  resolvePreset,
+  todayIn,
+  type Preset,
+  type Range,
+} from './periods';
 import { useAnalyticsStatus, useDefinitions, useOverview, type Compare } from './queries';
 
 const COMPARES: Compare[] = ['previous_period', 'previous_year', 'none'];
-
-function chartColors() {
-  return {
-    axis: cssToken('--color-line', '#e2e5ea'),
-    grid: cssToken('--color-surface-muted', '#f0f2f5'),
-    text: cssToken('--color-ink-subtle', '#8a92a1'),
-  };
-}
-
-function bucketLabel(period: string, grain: string, locale?: string): string {
-  const date = new Date(`${period}T00:00:00Z`);
-  const opts: Intl.DateTimeFormatOptions =
-    grain === 'month' || grain === 'quarter'
-      ? { month: 'short', year: '2-digit', timeZone: 'UTC' }
-      : { month: 'short', day: 'numeric', timeZone: 'UTC' };
-  return new Intl.DateTimeFormat(locale, opts).format(date);
-}
 
 export function OverviewPage() {
   const { t } = useTranslation();

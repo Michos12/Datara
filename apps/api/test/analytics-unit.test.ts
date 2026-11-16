@@ -1,7 +1,8 @@
 import { overviewQuerySchema } from '@ci/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { AnalyticsClient } from '../src/infra/analytics-client.js';
-import { hashParams, splitPending } from '../src/modules/analytics/analytics.service.js';
+import { splitPending } from '../src/modules/analytics/analytics.service.js';
+import { hashParams } from '../src/modules/analytics/query-cache.js';
 import { neutralizeFormula } from '../src/modules/exports/export.routes.js';
 
 describe('neutralizeFormula (CSV injection)', () => {
