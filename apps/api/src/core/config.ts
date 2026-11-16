@@ -30,6 +30,8 @@ const envSchema = z.object({
         .filter(Boolean),
     ),
   LOG_LEVEL: z.enum(logLevels).default('info'),
+  /** Directory for uploads and generated files; a shared volume in Docker. */
+  STORAGE_DIR: z.string().min(1).default('storage'),
 });
 
 export interface Config {
@@ -47,6 +49,7 @@ export interface Config {
   trustProxy: boolean | number | string;
   corsOrigins: string[];
   logLevel: (typeof logLevels)[number];
+  storageDir: string;
 }
 
 export class ConfigError extends Error {
@@ -85,5 +88,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: parseTrustProxy(e.TRUST_PROXY),
     corsOrigins: e.CORS_ORIGINS,
     logLevel: e.LOG_LEVEL,
+    storageDir: e.STORAGE_DIR,
   };
 }

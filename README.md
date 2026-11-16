@@ -4,9 +4,9 @@ Customer analytics and business intelligence SaaS for small and medium-sized bus
 turns customer and order data into documented metrics: retention, churn, cohorts, RFM
 segments, customer lifetime value, and rule-based recommendations.
 
-> **Status:** Milestones **M0 (foundations)** and **M1 (auth, organizations, tenant isolation)**
-> are done: sign up, sign in, organization settings, audit log, and row-level security on every
-> tenant table. Customer data arrives in M2. See the [roadmap](docs/06-roadmap.md).
+> **Status:** Milestones **M0–M2** are done: accounts and organizations, row-level security on
+> every tenant table, customers and orders, CSV import with validation reports, and synthetic demo
+> data. Analytics (the Overview KPIs) arrive in M3. See the [roadmap](docs/06-roadmap.md).
 
 ## Architecture at a glance
 
@@ -101,4 +101,20 @@ services/
   analytics/           Python analytics service and worker
 infra/postgres/init/   Database bootstrap (runtime role)
 docs/                  SRS, architecture, data model, API, methodology, roadmap, ADRs
+```
+
+## Demo data
+
+Sign up, open **Customers** and choose **Load demo data** (owners only, empty organizations only).
+Or generate import-ready CSV files with known ground truth:
+
+```bash
+docker compose exec analytics python -m insights.datagen --customers 2000 --industry retail --currency USD --timezone America/Bogota --out /tmp/demo
+```
+
+On Windows hosts where Application Control blocks numpy's native libraries, run the analytics
+tests in Linux:
+
+```bash
+docker build --target test -t ci-analytics-test services/analytics && docker run --rm ci-analytics-test
 ```

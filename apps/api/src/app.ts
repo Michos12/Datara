@@ -8,11 +8,18 @@ import type { Config } from './core/config.js';
 import { errorHandler, notFoundHandler } from './core/errors.js';
 import type { Logger } from './core/logger.js';
 import type { Database } from './infra/database.js';
+import { FileStorage } from './infra/storage.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { DEFAULT_AUTH_RATE_LIMITS, type AuthRateLimits } from './modules/auth/rate-limits.js';
 import { TokenService } from './modules/auth/tokens.js';
 import { healthRouter, type HealthChecks } from './modules/health/health.routes.js';
+import { customerDataRouter } from './modules/customers/customer.routes.js';
+import { CustomerService } from './modules/customers/customer.service.js';
+import { importRouter } from './modules/imports/import.routes.js';
+import { ImportService } from './modules/imports/import.service.js';
+import { jobRouter } from './modules/jobs/job.routes.js';
+import { OrderService } from './modules/orders/order.service.js';
 import { organizationRouter } from './modules/organizations/organization.routes.js';
 import { OrganizationService } from './modules/organizations/organization.service.js';
 
@@ -25,6 +32,8 @@ export interface AppDeps {
   rateLimits?: AuthRateLimits;
   /** Clock for token issuing and expiry; injectable for tests. */
   now?: () => number;
+  /** Upload storage; defaults to config.storageDir on local disk. */
+  storage?: FileStorage;
 }
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -73,6 +82,16 @@ export function createApp(deps: AppDeps): Express {
       }),
     );
     v1.use(organizationRouter({ organizations: new OrganizationService(deps.database), tokens }));
+    v1.use(
+      customerDataRouter({
+        customers: new CustomerService(deps.database, deps.now),
+        orders: new OrderService(deps.database, deps.now),
+        tokens,
+      }),
+    );
+    const storage = deps.storage ?? new FileStorage(config.storageDir);
+    v1.use(importRouter({ imports: new ImportService(deps.database, storage), tokens }));
+    v1.use(jobRouter({ db: deps.database, tokens }));
   }
 
   app.use('/api/v1', v1);

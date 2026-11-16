@@ -166,15 +166,15 @@ All writes to customers/orders/interactions bump `organizations.data_version` an
 
 ### 2.7 Imports
 
-| Method | Path                             | Roles | Description                                                                                                                               |
-| ------ | -------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/imports`                       | OA    | `multipart/form-data`: `file` (CSV ≤ 50 MB), `entity`. → `201 { import, detectedColumns, sampleRows, suggestedMapping }`.                 |
-| PUT    | `/imports/:id/mapping`           | OA    | `{ mapping: { "<csv column>": "<field>" }, options: { dateFormat, decimalSeparator, amountsAreCents } }` → starts validation job → `202`. |
-| GET    | `/imports/:id`                   | OA    | Status, counts, first 100 errors.                                                                                                         |
-| GET    | `/imports/:id/errors.csv`        | OA    | Full row-level error report.                                                                                                              |
-| POST   | `/imports/:id/commit`            | OA    | Run the import (upsert by `external_id`). → `202 { jobId }`.                                                                              |
-| GET    | `/imports`                       | OA    | History.                                                                                                                                  |
-| GET    | `/imports/templates/:entity.csv` | OANV  | Downloadable CSV template.                                                                                                                |
+| Method | Path                             | Roles | Description                                                                                                                                                |
+| ------ | -------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/imports`                       | OA    | Raw CSV as the request body (`Content-Type: text/csv`, ≤ 50 MB), `?entity=customers\|orders&filename=…`. → `201 { import, sampleRows, suggestedMapping }`. |
+| PUT    | `/imports/:id/mapping`           | OA    | `{ mapping: { "<csv column>": "<field>" }, options: { dateFormat, decimalSeparator, amountsAreCents } }` → starts validation job → `202`.                  |
+| GET    | `/imports/:id`                   | OA    | Status, counts, first 100 errors.                                                                                                                          |
+| GET    | `/imports/:id/errors.csv`        | OA    | Full row-level error report.                                                                                                                               |
+| POST   | `/imports/:id/commit`            | OA    | Run the import (upsert by `external_id`). → `202 { jobId }`.                                                                                               |
+| GET    | `/imports`                       | OA    | History.                                                                                                                                                   |
+| GET    | `/imports/templates/:entity.csv` | OANV  | Downloadable CSV template.                                                                                                                                 |
 
 ### 2.8 Segments
 

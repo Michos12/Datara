@@ -2,12 +2,12 @@ import { hostname } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
+import { Database } from './infra/database.js';
 import { dispatchJob, NODE_JOB_PREFIXES, type HandlerRegistry } from './infra/job-dispatch.js';
 import { claimJob, completeJob, failJob, type ClaimedJob } from './infra/job-queue.js';
 import { createPrismaClient } from './infra/prisma.js';
-
-/** Handlers are registered by later milestones (CSV imports in M2, exports in M3). */
-const handlers: HandlerRegistry = {};
+import { FileStorage } from './infra/storage.js';
+import { importJobHandlers } from './modules/imports/import.jobs.js';
 
 const IDLE_POLL_MS = 1000;
 
@@ -16,11 +16,18 @@ const logger = createLogger(config).child({ component: 'worker' });
 const prisma = createPrismaClient(config.databaseUrl);
 const workerId = `node-${hostname()}-${process.pid}`;
 
+const handlers: HandlerRegistry = {
+  ...importJobHandlers({ db: new Database(prisma), storage: new FileStorage(config.storageDir) }),
+};
+
 let running = true;
 process.on('SIGTERM', () => (running = false));
 process.on('SIGINT', () => (running = false));
 
-logger.info({ workerId, prefixes: NODE_JOB_PREFIXES }, 'worker started');
+logger.info(
+  { workerId, prefixes: NODE_JOB_PREFIXES, handlers: Object.keys(handlers) },
+  'worker started',
+);
 while (running) {
   let job: ClaimedJob | null = null;
   try {

@@ -16,6 +16,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     trustProxy: false,
     corsOrigins: ['http://localhost:5173'],
     logLevel: 'silent',
+    storageDir: 'storage-test',
     ...overrides,
   };
 }

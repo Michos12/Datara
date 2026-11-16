@@ -16,6 +16,14 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY insights ./insights
 RUN uv sync --frozen --no-dev
 
+# ── Test image: dev dependencies + tests (used locally where host policy blocks native wheels) ──
+FROM base AS test
+RUN uv sync --frozen
+COPY tests ./tests
+CMD ["python", "-m", "pytest"]
+
+# ── Runtime image ──
+FROM base AS runtime
 RUN useradd --system --uid 10001 --no-create-home insights
 USER insights
 EXPOSE 8000

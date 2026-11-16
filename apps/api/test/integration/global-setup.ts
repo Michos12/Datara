@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import type { TestProject } from 'vitest/node';
@@ -10,6 +12,8 @@ declare module 'vitest' {
     databaseUrl: string;
     /** Owner role on the throwaway database: bypasses RLS, for test arrangement only. */
     ownerDatabaseUrl: string;
+    /** Upload storage shared by all test files (any file's job runner may process any import). */
+    storageDir: string;
   }
 }
 
@@ -77,8 +81,11 @@ export default async function setup(project: TestProject) {
     withDatabase(ownerUrl, database, { user: appUser, password: appPassword }),
   );
   project.provide('ownerDatabaseUrl', testOwnerUrl);
+  const storageDir = mkdtempSync(join(tmpdir(), 'ci-test-storage-'));
+  project.provide('storageDir', storageDir);
 
   return async () => {
+    rmSync(storageDir, { recursive: true, force: true });
     const cleanup = new pg.Client({ connectionString: ownerUrl });
     await cleanup.connect();
     await cleanup.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);

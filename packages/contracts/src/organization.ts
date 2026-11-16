@@ -37,6 +37,38 @@ const isValidCurrency = (code: string): boolean => {
   }
 };
 
+/**
+ * ISO 4217 minor units. Stored money is integer minor units of the organization currency, and
+ * this table (not Intl, whose CLDR display rules differ, e.g. COP) defines what one unit is.
+ * Mirrored in services/analytics/insights/money.py.
+ */
+const ZERO_DECIMAL = new Set([
+  'BIF',
+  'CLP',
+  'DJF',
+  'GNF',
+  'ISK',
+  'JPY',
+  'KMF',
+  'KRW',
+  'PYG',
+  'RWF',
+  'UGX',
+  'UYI',
+  'VND',
+  'VUV',
+  'XAF',
+  'XOF',
+  'XPF',
+]);
+const THREE_DECIMAL = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
+
+export function currencyMinorUnits(currency: string): number {
+  if (ZERO_DECIMAL.has(currency)) return 0;
+  if (THREE_DECIMAL.has(currency)) return 3;
+  return 2;
+}
+
 export const timezoneSchema = z
   .string()
   .min(1)

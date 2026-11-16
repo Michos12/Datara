@@ -1,4 +1,31 @@
+import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaClient, TransactionClient } from './prisma.js';
+
+/**
+ * Tagged-template SQL helpers for the few queries Prisma's query builder cannot express
+ * (keyset pagination over aggregates, bulk upserts). Values are always bound parameters;
+ * `raw` is only for whitelisted identifiers and fragments, never user input.
+ */
+export const sql = Prisma.sql;
+export const join = Prisma.join;
+export const raw = Prisma.raw;
+export const empty = Prisma.empty;
+export type SqlFragment = Prisma.Sql;
+
+/** Records a change to tenant data. Analytics caches and snapshots key on this (ADR-0009). */
+export async function bumpDataVersion(
+  tx: TransactionClient,
+  organizationId: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    UPDATE organizations SET data_version = data_version + 1 WHERE id = ${organizationId}::uuid`;
+}
+
+/** BigInt money columns fit safely in a JS number (< 2^53 minor units). */
+export function toNumber(value: bigint | number | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  return typeof value === 'bigint' ? Number(value) : value;
+}
 
 /** A transaction-scoped client. Repositories receive this, never the root client. */
 export type Tx = TransactionClient;

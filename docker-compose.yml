@@ -47,6 +47,9 @@ services:
       API_PORT: 4000
       CORS_ORIGINS: http://localhost:5173
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      STORAGE_DIR: /data/storage
+    volumes:
+      - uploads:/data/storage
     ports:
       - '127.0.0.1:4000:4000'
     depends_on:
@@ -76,6 +79,10 @@ services:
       <<: *db-env
       NODE_ENV: development
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Same volume as the API: the worker reads uploaded CSVs and writes error reports.
+      STORAGE_DIR: /data/storage
+    volumes:
+      - uploads:/data/storage
     command: ['npx', 'tsx', 'watch', 'src/worker.ts']
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -131,3 +138,4 @@ services:
 
 volumes:
   db-data:
+  uploads:
