@@ -1,0 +1,108 @@
+// Customer Insights database schema.
+// Prisma owns every migration, including analytics tables (ADR-0005).
+// Full target model: docs/03-data-model.md. Tables are added milestone by milestone.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+// Connection URLs live outside the schema (Prisma 7): migrations use DIRECT_DATABASE_URL
+// (schema owner) from prisma.config.ts; the app uses DATABASE_URL (app_user) through the
+// pg driver adapter in src/infra/prisma.ts.
+datasource db {
+  provider   = "postgresql"
+  extensions = [citext, pg_trgm]
+}
+
+// ───────────── Identity & tenancy ─────────────
+
+enum Role {
+  OWNER
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+model Organization {
+  id          String   @id @db.Uuid
+  name        String
+  slug        String   @unique
+  /// IANA time zone name, e.g. "America/Bogota". All period bucketing uses it.
+  timezone    String   @default("UTC")
+  /// ISO-4217 currency code. One currency per organization.
+  currency    String   @db.Char(3)
+  /// retail | ecommerce | restaurant | subscription | services | other
+  industry    String   @default("other")
+  /// activeWindowDays, churnDays, weekStart, ... (see docs/05-analytics-methodology.md §4.4)
+  settings    Json     @default("{}")
+  /// Incremented on every tenant data change; analytics caches key on it.
+  dataVersion BigInt   @default(0) @map("data_version")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships Membership[]
+
+  @@map("organizations")
+}
+
+model User {
+  id           String    @id @db.Uuid
+  email        String    @unique @db.Citext
+  passwordHash String    @map("password_hash")
+  fullName     String    @map("full_name")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships Membership[]
+
+  @@map("users")
+}
+
+model Membership {
+  id             String       @id @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  role           Role
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// ───────────── Operations ─────────────
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// Postgres-backed job queue (ADR-0003). Node claims import./export./report. jobs,
+/// the analytics worker claims analytics. jobs. Not RLS-protected: handlers set app.org_id
+/// from the job before touching tenant data.
+model Job {
+  id             String    @id @db.Uuid
+  organizationId String?   @map("organization_id") @db.Uuid
+  type           String
+  payload        Json      @default("{}")
+  status         JobStatus @default(PENDING)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  runAfter       DateTime  @default(now()) @map("run_after") @db.Timestamptz(6)
+  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
+  lockedBy       String?   @map("locked_by")
+  error          String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  @@index([status, runAfter])
+  @@index([organizationId, createdAt])
+  @@map("jobs")
+}

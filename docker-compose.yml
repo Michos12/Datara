@@ -1,0 +1,132 @@
+# Local development stack. Start with:  docker compose up --build --watch
+# Values come from .env (copy .env.example); the defaults below match .env.example.
+
+name: customer-insights
+
+x-db-env: &db-env
+  DATABASE_URL: postgresql://${APP_DB_USER:-app_user}:${APP_DB_PASSWORD:-change-me-app}@db:5432/${POSTGRES_DB:-customer_insights}
+  DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-insights_owner}:${POSTGRES_PASSWORD:-change-me-owner}@db:5432/${POSTGRES_DB:-customer_insights}
+  ANALYTICS_SERVICE_TOKEN: ${ANALYTICS_SERVICE_TOKEN:-change-me-service-token}
+  ANALYTICS_URL: http://analytics:8000
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-insights_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-owner}
+      POSTGRES_DB: ${POSTGRES_DB:-customer_insights}
+      APP_DB_USER: ${APP_DB_USER:-app_user}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-change-me-app}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot: applies Prisma migrations as the schema owner, then exits.
+  migrate:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: dev }
+    environment: *db-env
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    depends_on:
+      db: { condition: service_healthy }
+    restart: 'no'
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: dev }
+    environment:
+      <<: *db-env
+      NODE_ENV: development
+      API_PORT: 4000
+      CORS_ORIGINS: http://localhost:5173
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '127.0.0.1:4000:4000'
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    develop:
+      watch:
+        - { action: sync, path: ./apps/api/src, target: /repo/apps/api/src, ignore: [generated/] }
+        - { action: sync, path: ./packages/contracts/src, target: /repo/packages/contracts/src }
+        - { action: rebuild, path: ./apps/api/package.json }
+        - { action: rebuild, path: ./apps/api/prisma }
+
+  api-worker:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: dev }
+    environment:
+      <<: *db-env
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    command: ['npx', 'tsx', 'watch', 'src/worker.ts']
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    develop:
+      watch:
+        - { action: sync, path: ./apps/api/src, target: /repo/apps/api/src, ignore: [generated/] }
+        - { action: rebuild, path: ./apps/api/package.json }
+
+  analytics:
+    build: { context: ./services/analytics }
+    environment:
+      <<: *db-env
+      LOG_JSON: 'false'
+    command: ['uvicorn', 'insights.api.main:app', '--host', '0.0.0.0', '--port', '8000', '--reload']
+    # Internal service: published on loopback only so local tools can reach it; never public.
+    ports:
+      - '127.0.0.1:8000:8000'
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    develop:
+      watch:
+        - { action: sync, path: ./services/analytics/insights, target: /app/insights }
+        - { action: rebuild, path: ./services/analytics/uv.lock }
+
+  analytics-worker:
+    build: { context: ./services/analytics }
+    environment:
+      <<: *db-env
+      LOG_JSON: 'false'
+    command: ['python', '-m', 'insights.worker']
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    develop:
+      watch:
+        - { action: sync+restart, path: ./services/analytics/insights, target: /app/insights }
+        - { action: rebuild, path: ./services/analytics/uv.lock }
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile, target: dev }
+    environment:
+      VITE_API_PROXY_TARGET: http://api:4000
+    ports:
+      - '127.0.0.1:5173:5173'
+    depends_on:
+      api: { condition: service_started }
+    develop:
+      watch:
+        - { action: sync, path: ./apps/web/src, target: /repo/apps/web/src }
+        - { action: sync, path: ./packages/contracts/src, target: /repo/packages/contracts/src }
+        - { action: rebuild, path: ./apps/web/package.json }
+
+volumes:
+  db-data:

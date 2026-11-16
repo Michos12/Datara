@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  analytics:
+    name: Analytics (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/analytics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run python -m pytest --cov=insights --cov-report=term-missing
+
+  migrations:
+    name: Migrations apply on a clean database
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: insights_owner
+          POSTGRES_PASSWORD: ci-owner
+          POSTGRES_DB: customer_insights
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U insights_owner" --health-interval 5s --health-retries 20
+    env:
+      DIRECT_DATABASE_URL: postgresql://insights_owner:ci-owner@localhost:5432/customer_insights
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Create runtime role (same script as docker compose)
+        env:
+          POSTGRES_USER: insights_owner
+          POSTGRES_DB: customer_insights
+          APP_DB_USER: app_user
+          APP_DB_PASSWORD: ci-app
+          PGHOST: localhost
+          PGPASSWORD: ci-owner
+        run: sh infra/postgres/init/01-app-role.sh
+      - run: npx prisma migrate deploy
+        working-directory: apps/api
+      - name: Runtime role can read migrated tables
+        env:
+          PGPASSWORD: ci-app
+        run: psql -h localhost -U app_user -d customer_insights -c "SELECT count(*) FROM _prisma_migrations"
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build
+      - run: docker build --target prod -f apps/api/Dockerfile -t ci-api:prod .
+      - run: docker build --target prod -f apps/web/Dockerfile -t ci-web:prod .
