@@ -5,6 +5,7 @@ import request, { type Response } from 'supertest';
 import { inject } from 'vitest';
 import { createApp } from '../../src/app.js';
 import { newId } from '../../src/core/ids.js';
+import type { AnalyticsClient } from '../../src/infra/analytics-client.js';
 import { Database } from '../../src/infra/database.js';
 import { dispatchJob, NODE_JOB_PREFIXES } from '../../src/infra/job-dispatch.js';
 import { claimJob, completeJob, failJob } from '../../src/infra/job-queue.js';
@@ -34,7 +35,9 @@ export interface TestContext {
   close(): Promise<void>;
 }
 
-export function createTestContext(options: { rateLimits?: AuthRateLimits } = {}): TestContext {
+export function createTestContext(
+  options: { rateLimits?: AuthRateLimits; analytics?: AnalyticsClient } = {},
+): TestContext {
   const prisma = createPrismaClient(inject('databaseUrl'));
   const owner = createPrismaClient(inject('ownerDatabaseUrl'));
   const db = new Database(prisma);
@@ -55,6 +58,7 @@ export function createTestContext(options: { rateLimits?: AuthRateLimits } = {})
     rateLimits: options.rateLimits ?? GENEROUS_LIMITS,
     now,
     storage,
+    ...(options.analytics ? { analytics: options.analytics } : {}),
   });
   return {
     app,

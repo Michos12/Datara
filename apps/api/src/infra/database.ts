@@ -1,4 +1,5 @@
 import { Prisma } from '../generated/prisma/client.js';
+import { scheduleRecompute } from './job-queue.js';
 import type { PrismaClient, TransactionClient } from './prisma.js';
 
 /**
@@ -19,6 +20,25 @@ export async function bumpDataVersion(
 ): Promise<void> {
   await tx.$executeRaw`
     UPDATE organizations SET data_version = data_version + 1 WHERE id = ${organizationId}::uuid`;
+}
+
+/** Edits made through the UI or API: wait for a quiet moment before recomputing. */
+export const EDIT_RECOMPUTE_DELAY_MS = 10 * 60 * 1000;
+
+/**
+ * Every change that affects analytics: bumps the data version (invalidating cached queries) and
+ * schedules a recompute of the snapshot (debounced by the one-pending-job rule).
+ */
+export async function recordDataChange(
+  tx: TransactionClient,
+  organizationId: string,
+  {
+    delayMs = EDIT_RECOMPUTE_DELAY_MS,
+    trigger = 'edit',
+  }: { delayMs?: number; trigger?: string } = {},
+): Promise<void> {
+  await bumpDataVersion(tx, organizationId);
+  await scheduleRecompute(tx, organizationId, delayMs, trigger);
 }
 
 /** BigInt money columns fit safely in a JS number (< 2^53 minor units). */

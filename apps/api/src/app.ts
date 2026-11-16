@@ -7,8 +7,11 @@ import { pinoHttp } from 'pino-http';
 import type { Config } from './core/config.js';
 import { errorHandler, notFoundHandler } from './core/errors.js';
 import type { Logger } from './core/logger.js';
+import { AnalyticsClient } from './infra/analytics-client.js';
 import type { Database } from './infra/database.js';
 import { FileStorage } from './infra/storage.js';
+import { analyticsRouter } from './modules/analytics/analytics.routes.js';
+import { AnalyticsService } from './modules/analytics/analytics.service.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { DEFAULT_AUTH_RATE_LIMITS, type AuthRateLimits } from './modules/auth/rate-limits.js';
@@ -16,6 +19,7 @@ import { TokenService } from './modules/auth/tokens.js';
 import { healthRouter, type HealthChecks } from './modules/health/health.routes.js';
 import { customerDataRouter } from './modules/customers/customer.routes.js';
 import { CustomerService } from './modules/customers/customer.service.js';
+import { exportRouter } from './modules/exports/export.routes.js';
 import { importRouter } from './modules/imports/import.routes.js';
 import { ImportService } from './modules/imports/import.service.js';
 import { jobRouter } from './modules/jobs/job.routes.js';
@@ -34,6 +38,8 @@ export interface AppDeps {
   now?: () => number;
   /** Upload storage; defaults to config.storageDir on local disk. */
   storage?: FileStorage;
+  /** Client for the internal analytics service; defaults to config.analytics. */
+  analytics?: AnalyticsClient;
 }
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -92,6 +98,15 @@ export function createApp(deps: AppDeps): Express {
     const storage = deps.storage ?? new FileStorage(config.storageDir);
     v1.use(importRouter({ imports: new ImportService(deps.database, storage), tokens }));
     v1.use(jobRouter({ db: deps.database, tokens }));
+    const analyticsClient =
+      deps.analytics ?? new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);
+    v1.use(
+      analyticsRouter({
+        analytics: new AnalyticsService(deps.database, analyticsClient, deps.now),
+        tokens,
+      }),
+    );
+    v1.use(exportRouter({ db: deps.database, tokens, ...(deps.now ? { now: deps.now } : {}) }));
   }
 
   app.use('/api/v1', v1);

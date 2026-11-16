@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { Button, SelectField, TextField } from '../../components/forms';
 import { Card, PageHeader } from '../../components/PageHeader';
+import { apiDownload } from '../../lib/api';
 import { formatDate, formatMoney, formatNumber } from '../../lib/format';
 import { useSession } from '../auth/AuthProvider';
 import { CustomerFormDialog } from './CustomerForm';
@@ -55,6 +56,17 @@ export function CustomersPage() {
                   {t('customers.importCta')}
                 </Link>
               )}
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const params = new URLSearchParams({ sort });
+                  if (q) params.set('q', q);
+                  if (hasOrders) params.set('hasOrders', hasOrders);
+                  void apiDownload(`/exports/customers.csv?${params}`, 'customers.csv');
+                }}
+              >
+                {t('customers.export')}
+              </Button>
               <Button onClick={() => setCreating(true)}>{t('customers.new')}</Button>
             </div>
           )

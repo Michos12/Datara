@@ -11,7 +11,7 @@ import { AppError } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { AuthContext } from '../../core/request-context.js';
 import {
-  bumpDataVersion,
+  recordDataChange,
   isUniqueViolation,
   toNumber,
   type Database,
@@ -125,7 +125,7 @@ export class OrderService {
             refundedCents: BigInt(input.refundedCents ?? 0),
           },
         });
-        await bumpDataVersion(tx, auth.organizationId);
+        await recordDataChange(tx, auth.organizationId);
         return toOrder(row);
       });
     } catch (err) {
@@ -172,7 +172,7 @@ export class OrderService {
             refundedCents: BigInt(amounts.refundedCents),
           },
         });
-        await bumpDataVersion(tx, auth.organizationId);
+        await recordDataChange(tx, auth.organizationId);
         return toOrder(row);
       });
     } catch (err) {
@@ -188,7 +188,7 @@ export class OrderService {
         data: { deletedAt: new Date(this.now()) },
       });
       if (count === 0) throw new AppError('NOT_FOUND', 'Order not found');
-      await bumpDataVersion(tx, auth.organizationId);
+      await recordDataChange(tx, auth.organizationId);
       await recordAudit(tx, {
         organizationId: auth.organizationId,
         actorUserId: auth.userId,
