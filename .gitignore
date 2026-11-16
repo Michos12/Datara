@@ -22,3 +22,6 @@ htmlcov/
 
 # Local data
 storage/
+
+# Editor / AI snapshot tooling
+.snapshots/

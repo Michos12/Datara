@@ -4,8 +4,9 @@ Customer analytics and business intelligence SaaS for small and medium-sized bus
 turns customer and order data into documented metrics: retention, churn, cohorts, RFM
 segments, customer lifetime value, and rule-based recommendations.
 
-> **Status:** Milestone **M0 (foundations)**. The stack runs end to end with health checks;
-> product features arrive from M1. See the [roadmap](docs/06-roadmap.md).
+> **Status:** Milestones **M0 (foundations)** and **M1 (auth, organizations, tenant isolation)**
+> are done: sign up, sign in, organization settings, audit log, and row-level security on every
+> tenant table. Customer data arrives in M2. See the [roadmap](docs/06-roadmap.md).
 
 ## Architecture at a glance
 
@@ -81,6 +82,7 @@ The API and Prisma CLI read the root `.env` automatically.
 | Format check             | `npm run format:check`                                                                   |
 | Typecheck                | `npm run typecheck`                                                                      |
 | Tests (TS)               | `npm test`                                                                               |
+| API integration tests    | `npm run test:integration -w @ci/api` (needs Postgres: `docker compose up -d db`)        |
 | Build                    | `npm run build`                                                                          |
 | Analytics lint/type/test | `cd services/analytics && uv run ruff check . && uv run mypy && uv run python -m pytest` |
 

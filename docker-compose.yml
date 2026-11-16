@@ -8,6 +8,7 @@ x-db-env: &db-env
   DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-insights_owner}:${POSTGRES_PASSWORD:-change-me-owner}@db:5432/${POSTGRES_DB:-customer_insights}
   ANALYTICS_SERVICE_TOKEN: ${ANALYTICS_SERVICE_TOKEN:-change-me-service-token}
   ANALYTICS_URL: http://analytics:8000
+  JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret-of-48-chars-min}
 
 services:
   db:

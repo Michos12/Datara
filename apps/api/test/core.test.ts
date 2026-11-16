@@ -11,6 +11,7 @@ import { retryDelayMs, type ClaimedJob } from '../src/infra/job-queue.js';
 const validEnv = {
   DATABASE_URL: 'postgresql://app_user:pw@localhost:5432/customer_insights',
   ANALYTICS_SERVICE_TOKEN: 'a-sufficiently-long-token',
+  JWT_SECRET: 'test-jwt-secret-that-is-long-enough-1234',
 };
 
 describe('loadConfig', () => {

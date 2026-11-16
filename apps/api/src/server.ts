@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { loadConfig } from './core/config.js';
 import { createLogger } from './core/logger.js';
 import { AnalyticsClient } from './infra/analytics-client.js';
+import { Database } from './infra/database.js';
 import { createHealthChecks } from './infra/health-checks.js';
 import { createPrismaClient } from './infra/prisma.js';
 
@@ -10,7 +11,12 @@ const logger = createLogger(config);
 const prisma = createPrismaClient(config.databaseUrl);
 const analytics = new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);
 
-const app = createApp({ config, logger, health: createHealthChecks(prisma, analytics) });
+const app = createApp({
+  config,
+  logger,
+  health: createHealthChecks(prisma, analytics),
+  database: new Database(prisma),
+});
 
 const server = app.listen(config.port, () => {
   logger.info({ port: config.port }, 'API listening');

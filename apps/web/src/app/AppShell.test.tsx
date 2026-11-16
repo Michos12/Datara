@@ -1,35 +1,13 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createQueryClient } from './providers';
-import { routes } from './routes';
+import { screen, within } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { makeSession, mockApi, READY, renderApp } from '../test/fixtures';
 
-function mockReady(status: number, body: unknown) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => new Response(JSON.stringify(body), { status })),
-  );
-}
-
-function renderAt(path: string) {
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
-  return render(
-    <QueryClientProvider client={createQueryClient()}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-}
-
-afterEach(() => vi.unstubAllGlobals());
+const signedIn = { status: 'authenticated' as const, session: makeSession() };
 
 describe('AppShell', () => {
-  it('renders the main navigation with the active page marked', async () => {
-    mockReady(200, {
-      status: 'ready',
-      checks: { database: 'up', migrations: 'up', analytics: 'up' },
-    });
-    renderAt('/customers');
+  it('renders the main navigation with the active page marked', () => {
+    mockApi(READY);
+    renderApp('/customers', signedIn);
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(within(nav).getByRole('link', { name: 'Overview' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Customers' })).toHaveAttribute(
@@ -40,39 +18,47 @@ describe('AppShell', () => {
     expect(screen.getByText('Planned for M2')).toBeInTheDocument();
   });
 
+  it('shows the user, organization and role', () => {
+    mockApi(READY);
+    renderApp('/customers', signedIn);
+    expect(screen.getByText('Ana Pérez')).toBeInTheDocument();
+    expect(screen.getByText('Café Central · Owner')).toBeInTheDocument();
+  });
+
   it('shows healthy status when all services are up', async () => {
-    mockReady(200, {
-      status: 'ready',
-      checks: { database: 'up', migrations: 'up', analytics: 'up' },
-    });
-    renderAt('/settings');
+    mockApi(READY);
+    renderApp('/customers', signedIn);
     expect(await screen.findByText('All systems operational')).toBeInTheDocument();
   });
 
   it('warns when analytics is down but the API is ready', async () => {
-    mockReady(200, {
-      status: 'ready',
-      checks: { database: 'up', migrations: 'up', analytics: 'down' },
+    mockApi({
+      'GET /ready': () => ({
+        status: 200,
+        body: { status: 'ready', checks: { database: 'up', migrations: 'up', analytics: 'down' } },
+      }),
     });
-    renderAt('/settings');
+    renderApp('/customers', signedIn);
     expect(await screen.findByText('Analytics unavailable')).toBeInTheDocument();
   });
 
   it('treats 503 from /ready as "not ready", not as a crash', async () => {
-    mockReady(503, {
-      status: 'not_ready',
-      checks: { database: 'down', migrations: 'down', analytics: 'up' },
+    mockApi({
+      'GET /ready': () => ({
+        status: 503,
+        body: {
+          status: 'not_ready',
+          checks: { database: 'down', migrations: 'down', analytics: 'up' },
+        },
+      }),
     });
-    renderAt('/settings');
+    renderApp('/customers', signedIn);
     expect(await screen.findByText('API not ready')).toBeInTheDocument();
   });
 
   it('renders a not-found page for unknown routes', () => {
-    mockReady(200, {
-      status: 'ready',
-      checks: { database: 'up', migrations: 'up', analytics: 'up' },
-    });
-    renderAt('/does-not-exist');
+    mockApi(READY);
+    renderApp('/does-not-exist', signedIn);
     expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
   });
 });

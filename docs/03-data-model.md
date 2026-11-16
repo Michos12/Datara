@@ -308,6 +308,7 @@ model Membership {
 model RefreshToken {
   id         String    @id @db.Uuid
   userId     String    @map("user_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid // active org; reissued access tokens keep it
   familyId   String    @map("family_id") @db.Uuid   // rotation chain; reuse revokes the family
   tokenHash  String    @unique @map("token_hash")   // SHA-256 of the opaque token
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz

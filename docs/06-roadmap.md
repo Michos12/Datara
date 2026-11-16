@@ -54,6 +54,11 @@ gantt
 
 ## M1 — Authentication, organizations and tenant isolation (≈3 weeks)
 
+> **Status (2026-11-16): done.** Delivered as specified, with these notes: the access token's
+> role can be up to 15 minutes stale (re-checked on every refresh); login rate limits use an
+> in-memory store, so a shared store is needed before running several API instances (M9);
+> member management and invitations stay in M8.
+
 **Functional requirements:** AUTH-01, 02, 03, 07, 08, 09; PLT-01 (basic audit log).
 
 **Technical implementation**

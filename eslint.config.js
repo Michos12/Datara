@@ -13,6 +13,7 @@ export default tseslint.config(
       '**/src/generated/**',
       'services/**',
       'tools/**',
+      '.snapshots/**',
       '**/*.config.js',
     ],
   },
@@ -32,15 +33,22 @@ export default tseslint.config(
     files: ['apps/api/**/*.ts'],
     languageOptions: { globals: globals.node },
     rules: {
-      // Tenant isolation (ADR-0004): only infra/ and the auth module may use the raw Prisma client.
-      'no-restricted-imports': [
+      // Tenant isolation (ADR-0004): only src/infra may create or use the raw Prisma client.
+      // Application code goes through Database.run(), which sets the RLS tenant context.
+      '@typescript-eslint/no-restricted-imports': [
         'error',
         {
           paths: [
             {
               name: '@prisma/client',
-              message:
-                'Import the tenant-scoped client from src/infra instead. Raw Prisma access is limited to src/infra and src/modules/auth.',
+              message: 'Use Database.run() from src/infra/database.ts instead.',
+              allowTypeImports: true,
+            },
+          ],
+          patterns: [
+            {
+              group: ['**/generated/prisma/*', '**/generated/prisma'],
+              message: 'Use Database.run() from src/infra/database.ts instead.',
               allowTypeImports: true,
             },
           ],
@@ -49,8 +57,8 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/api/src/infra/**/*.ts', 'apps/api/src/modules/auth/**/*.ts'],
-    rules: { 'no-restricted-imports': 'off' },
+    files: ['apps/api/src/infra/**/*.ts'],
+    rules: { '@typescript-eslint/no-restricted-imports': 'off' },
   },
   {
     files: ['apps/web/**/*.{ts,tsx}'],

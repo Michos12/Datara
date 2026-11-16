@@ -4,6 +4,7 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import type { HealthChecks } from '../src/modules/health/health.routes.js';
+import { testConfig } from './helpers/config.js';
 
 const up = async () => true;
 const down = async () => false;
@@ -13,7 +14,7 @@ const boom = async (): Promise<boolean> => {
 
 function buildApp(health: Partial<HealthChecks> = {}) {
   return createApp({
-    config: { corsOrigins: ['http://localhost:5173'], version: '1.2.3' },
+    config: testConfig(),
     logger: pino({ level: 'silent' }),
     health: { database: up, migrations: up, analytics: up, ...health },
   });

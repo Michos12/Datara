@@ -47,8 +47,8 @@ jobs:
       - run: uv run mypy
       - run: uv run python -m pytest --cov=insights --cov-report=term-missing
 
-  migrations:
-    name: Migrations apply on a clean database
+  database:
+    name: Database (migrations, RLS and API integration tests)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -62,6 +62,8 @@ jobs:
           --health-cmd "pg_isready -U insights_owner" --health-interval 5s --health-retries 20
     env:
       DIRECT_DATABASE_URL: postgresql://insights_owner:ci-owner@localhost:5432/customer_insights
+      APP_DB_USER: app_user
+      APP_DB_PASSWORD: ci-app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -84,6 +86,10 @@ jobs:
         env:
           PGPASSWORD: ci-app
         run: psql -h localhost -U app_user -d customer_insights -c "SELECT count(*) FROM _prisma_migrations"
+      # Each run creates its own throwaway database, migrates it and connects as app_user,
+      # so these tests exercise row-level security exactly as production does.
+      - name: API integration tests (auth, tenancy, cross-tenant isolation)
+        run: npm run test:integration -w @ci/api
 
   docker:
     name: Docker images build
