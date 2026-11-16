@@ -9,7 +9,8 @@ export interface NavItem {
     | 'reports'
     | 'customers'
     | 'imports'
-    | 'settings';
+    | 'settings'
+    | 'methodology';
   /** Roadmap milestone that delivers the page (docs/06-roadmap.md). */
   milestone: string;
   summary: string;
@@ -76,6 +77,12 @@ export const NAV_SECTIONS: { key: 'insights' | 'data' | 'workspace'; items: NavI
         key: 'settings',
         milestone: 'M1',
         summary: 'Organization, time zone, currency and analytics thresholds.',
+      },
+      {
+        path: '/methodology',
+        key: 'methodology',
+        milestone: 'M3',
+        summary: 'How every metric is defined and calculated.',
       },
     ],
   },

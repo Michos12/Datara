@@ -1,7 +1,7 @@
 import type { AuditLogPage, Organization, UpdateOrganizationRequest } from '@ci/contracts';
 import { AppError } from '../../core/errors.js';
 import type { AuthContext } from '../../core/request-context.js';
-import type { Database } from '../../infra/database.js';
+import { recordDataChange, type Database } from '../../infra/database.js';
 import { listAudit, recordAudit } from '../audit/audit.service.js';
 import { toOrganization } from './organization.mapper.js';
 
@@ -40,6 +40,10 @@ export class OrganizationService {
       const changed = (['name', 'timezone', 'industry', 'settings'] as const).filter(
         (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
       );
+      // Time zone and thresholds change every analytics result: recompute right away.
+      if (changed.some((key) => key === 'timezone' || key === 'settings')) {
+        await recordDataChange(tx, auth.organizationId, { delayMs: 0, trigger: 'settings' });
+      }
       if (changed.length > 0) {
         await recordAudit(tx, {
           organizationId: auth.organizationId,

@@ -1,13 +1,14 @@
-"""Job handler registry. Handlers orchestrate: load inputs, call pure functions, persist results.
-The `analytics.recompute` handler is added in M3."""
+"""Job handler registry. Handlers orchestrate: load inputs, call pure functions, persist results."""
 
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 
 from insights.datagen import GeneratorConfig, generate
 from insights.datagen.loader import load
 from insights.db import Database
 from insights.logging import get_logger
 from insights.worker.queue import Job
+from insights.worker.recompute import RECOMPUTE_JOB, recompute, schedule_recompute
 
 ANALYTICS_JOB_PREFIXES = ["analytics."]
 
@@ -46,10 +47,14 @@ def demo_data(job: Job, db: Database) -> None:
     )
     with db.tenant_transaction(job.organization_id) as conn:
         counts = load(conn, job.organization_id, data)
+        schedule_recompute(conn, job.organization_id, datetime.now(UTC), "demo_data")
     log.info("demo data loaded", organization_id=str(job.organization_id), **counts)
 
 
-HANDLERS: dict[str, JobHandler] = {"analytics.demo_data": demo_data}
+HANDLERS: dict[str, JobHandler] = {
+    "analytics.demo_data": demo_data,
+    RECOMPUTE_JOB: recompute,
+}
 
 
 def dispatch(job: Job, db: Database, handlers: Mapping[str, JobHandler] = HANDLERS) -> None:

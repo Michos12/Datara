@@ -8,7 +8,7 @@ import type {
 import { AppError } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { AuthContext } from '../../core/request-context.js';
-import { bumpDataVersion, isUniqueViolation, type Database } from '../../infra/database.js';
+import { recordDataChange, isUniqueViolation, type Database } from '../../infra/database.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { getCustomer, listCustomers } from './customer.repository.js';
 
@@ -56,7 +56,7 @@ export class CustomerService {
         await tx.customer.create({
           data: { id, organizationId: auth.organizationId, ...toData(input) },
         });
-        await bumpDataVersion(tx, auth.organizationId);
+        await recordDataChange(tx, auth.organizationId);
         const duplicateEmail = input.email
           ? (await tx.customer.count({
               where: {
@@ -84,7 +84,7 @@ export class CustomerService {
           data: toData(input),
         });
         if (count === 0) throw new AppError('NOT_FOUND', 'Customer not found');
-        await bumpDataVersion(tx, auth.organizationId);
+        await recordDataChange(tx, auth.organizationId);
         return (await getCustomer(tx, auth.organizationId, id, this.now()))!;
       });
     } catch (err) {
@@ -101,7 +101,7 @@ export class CustomerService {
         data: { deletedAt: new Date(this.now()) },
       });
       if (count === 0) throw new AppError('NOT_FOUND', 'Customer not found');
-      await bumpDataVersion(tx, auth.organizationId);
+      await recordDataChange(tx, auth.organizationId);
       await recordAudit(tx, {
         organizationId: auth.organizationId,
         actorUserId: auth.userId,
@@ -120,7 +120,7 @@ export class CustomerService {
         data: { deletedAt: null },
       });
       if (count === 0) throw new AppError('NOT_FOUND', 'Deleted customer not found');
-      await bumpDataVersion(tx, auth.organizationId);
+      await recordDataChange(tx, auth.organizationId);
       await recordAudit(tx, {
         organizationId: auth.organizationId,
         actorUserId: auth.userId,

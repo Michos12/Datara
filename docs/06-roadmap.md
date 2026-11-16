@@ -133,6 +133,19 @@ gantt
 
 ## M3 — Analytics core and Business Overview (≈3 weeks) — **MVP complete**
 
+> **Status (2026-11-16): implemented.** Notes on what changed from the plan:
+>
+> - `GET /analytics/overview` returns KPIs and the revenue and acquisition series in one response;
+>   `GET /analytics/status` replaces the separate runs and data-quality endpoints.
+> - Nightly runs are self-scheduling: each successful recompute queues the next one for 02:00 in
+>   the organization's time zone, so no cross-tenant scheduler query is needed.
+> - Edits schedule a recompute 10 minutes out; imports, settings changes and "Recompute now" run
+>   immediately. One pending recompute per organization is the debounce.
+> - The customer list and profile keep their live per-request statistics; snapshot metrics
+>   (lifecycle status, gaps, frequency) feed segmentation in M4.
+> - "Customer since" (for Total customers) is the earliest of registration and first purchase, so
+>   imported historical customers are not counted from the import date.
+
 **Functional requirements:** OVR-01 … 05, OVR-06 (date range), OVR-07; ANA-07 (historical CLV); ANA-09; RPT-01, RPT-07.
 
 **Technical implementation**

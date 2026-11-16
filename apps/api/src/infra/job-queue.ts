@@ -124,3 +124,25 @@ export async function failJob(
                     error = ${message}
     WHERE id = ${job.id}::uuid`;
 }
+
+export const RECOMPUTE_JOB = 'analytics.recompute';
+
+/**
+ * Schedules an analytics recompute for an organization, or moves the pending one earlier.
+ * At most one recompute is pending per organization (partial unique index), so a burst of
+ * edits produces a single run: this is the debounce.
+ */
+export async function scheduleRecompute(
+  prisma: SqlRunner | PrismaClient,
+  organizationId: string,
+  delayMs: number,
+  trigger: string,
+): Promise<void> {
+  const runAfter = new Date(Date.now() + delayMs);
+  await prisma.$executeRaw`
+    INSERT INTO jobs (id, organization_id, type, payload, run_after)
+    VALUES (${newId()}::uuid, ${organizationId}::uuid, ${RECOMPUTE_JOB},
+            ${JSON.stringify({ trigger })}::jsonb, ${runAfter})
+    ON CONFLICT (organization_id, type) WHERE status = 'PENDING' AND type = 'analytics.recompute'
+    DO UPDATE SET run_after = LEAST(jobs.run_after, EXCLUDED.run_after)`;
+}

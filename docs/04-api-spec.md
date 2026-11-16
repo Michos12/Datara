@@ -193,23 +193,21 @@ All writes to customers/orders/interactions bump `organizations.data_version` an
 
 All accept the common parameters in §1.7 where meaningful, and return the envelope in §1.6.
 
-| Method | Path                           | Roles | Returns                                                                                                                                                                 |
-| ------ | ------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/analytics/overview`          | OANV  | KPI set with comparison deltas (§3.2).                                                                                                                                  |
-| GET    | `/analytics/revenue-trend`     | OANV  | Series per `grain`: `netRevenueCents`, `orders`, `aovCents`, `uniqueCustomers`.                                                                                         |
-| GET    | `/analytics/acquisition-trend` | OANV  | Series: `newCustomers`, `returningCustomers`.                                                                                                                           |
-| GET    | `/analytics/retention`         | OANV  | Series: `retentionRate`, `retained`, `base` per period.                                                                                                                 |
-| GET    | `/analytics/churn`             | OANV  | Series: `churnRate`, `churned`, `base`; breakdown by segment at period start.                                                                                           |
-| GET    | `/analytics/churn/customers`   | OAN   | Customers who churned in the period (paginated).                                                                                                                        |
-| GET    | `/analytics/cohorts`           | OANV  | `metric` ∈ {`retention`, `revenue_per_customer`, `cumulative_revenue`}; `maxPeriods` (default 12). Matrix (§3.3).                                                       |
-| GET    | `/analytics/frequency`         | OANV  | Order-count histogram, repeat purchase rate, inter-purchase time stats, time-to-second-purchase distribution.                                                           |
-| GET    | `/analytics/clv`               | OANV  | Historical CLV: average, median, distribution, by cohort, by segment. With `includeEstimate=true`: predicted CLV section with `kind: "estimated"` and assumptions (P2). |
-| GET    | `/analytics/journey`           | OANV  | Lifecycle funnel and stage durations (P2).                                                                                                                              |
-| GET    | `/analytics/engagement`        | OANV  | Interaction volume by type/channel, engaged-customer rate, score distribution (P2).                                                                                     |
-| GET    | `/analytics/data-quality`      | OA N  | Data-quality report from the latest run.                                                                                                                                |
-| GET    | `/analytics/runs`              | OAN   | Recent runs with status and duration.                                                                                                                                   |
-| POST   | `/analytics/runs`              | OAN   | Trigger recompute → `202 { jobId }` (deduplicated).                                                                                                                     |
-| GET    | `/analytics/definitions`       | OANV  | Metric registry: key, name, version, formula, period rules, kind (feeds the methodology page).                                                                          |
+| Method | Path                             | Roles | Returns                                                                                                                                                                                      |
+| ------ | -------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/analytics/overview`            | OANV  | KPI set with comparison deltas (§3.2).                                                                                                                                                       |
+| GET    | `/analytics/overview` (sections) | OANV  | The overview response includes `trend[]` per bucket: `revenueNet`, `orders`, `aov`, `buyers`, `newCustomers`, `returningCustomers`, `partial`. Separate trend endpoints were folded into it. |
+| GET    | `/analytics/retention`           | OANV  | Series: `retentionRate`, `retained`, `base` per period.                                                                                                                                      |
+| GET    | `/analytics/churn`               | OANV  | Series: `churnRate`, `churned`, `base`; breakdown by segment at period start.                                                                                                                |
+| GET    | `/analytics/churn/customers`     | OAN   | Customers who churned in the period (paginated).                                                                                                                                             |
+| GET    | `/analytics/cohorts`             | OANV  | `metric` ∈ {`retention`, `revenue_per_customer`, `cumulative_revenue`}; `maxPeriods` (default 12). Matrix (§3.3).                                                                            |
+| GET    | `/analytics/frequency`           | OANV  | Order-count histogram, repeat purchase rate, inter-purchase time stats, time-to-second-purchase distribution.                                                                                |
+| GET    | `/analytics/clv`                 | OANV  | Historical CLV: average, median, distribution, by cohort, by segment. With `includeEstimate=true`: predicted CLV section with `kind: "estimated"` and assumptions (P2).                      |
+| GET    | `/analytics/journey`             | OANV  | Lifecycle funnel and stage durations (P2).                                                                                                                                                   |
+| GET    | `/analytics/engagement`          | OANV  | Interaction volume by type/channel, engaged-customer rate, score distribution (P2).                                                                                                          |
+| GET    | `/analytics/status`              | OANV  | Latest run, whether the snapshot is stale, any pending recompute, and the last run's data-quality report.                                                                                    |
+| POST   | `/analytics/runs`                | OAN   | Recompute now: moves the pending recompute forward or queues one → `202` with the status.                                                                                                    |
+| GET    | `/analytics/definitions`         | OANV  | Metric registry: key, name, version, formula, period rules, kind (feeds the methodology page).                                                                                               |
 
 ### 2.10 Recommendations (P1)
 

@@ -1,3 +1,12 @@
+import { AppError } from '../core/errors.js';
+
+export interface OverviewParams {
+  start?: string | undefined;
+  end?: string | undefined;
+  compare: string;
+  grain?: string | undefined;
+}
+
 /** Client for the internal Python analytics service (docs/04-api-spec.md §2.13). */
 export class AnalyticsClient {
   constructor(
@@ -17,5 +26,37 @@ export class AnalyticsClient {
     } catch {
       return false;
     }
+  }
+
+  overview(organizationId: string, params: OverviewParams): Promise<unknown> {
+    return this.call('POST', '/internal/query/overview', { organizationId, ...params });
+  }
+
+  definitions(): Promise<unknown> {
+    return this.call('GET', '/internal/definitions');
+  }
+
+  private async call(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+    let res: Response;
+    try {
+      res = await this.fetchImpl(new URL(path, this.baseUrl), {
+        method,
+        headers: {
+          'X-Service-Token': this.serviceToken,
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      throw new AppError('ANALYTICS_UNAVAILABLE', 'The analytics service is not reachable');
+    }
+    if (res.status === 422) {
+      throw new AppError('VALIDATION_FAILED', 'The analytics query was rejected');
+    }
+    if (!res.ok) {
+      throw new AppError('ANALYTICS_UNAVAILABLE', `The analytics service answered ${res.status}`);
+    }
+    return res.json();
   }
 }

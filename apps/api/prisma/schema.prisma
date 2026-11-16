@@ -250,6 +250,111 @@ model Import {
   @@map("imports")
 }
 
+// ───────────── Analytics outputs (M3) ─────────────
+// Written only by the Python analytics service; read by the API. Fully re-computable.
+
+enum RunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum LifecycleStatus {
+  PROSPECT
+  ACTIVE
+  AT_RISK
+  CHURNED
+}
+
+/// One analytics snapshot of an organization (docs/05-analytics-methodology.md).
+model AnalyticsRun {
+  id                 String    @id @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  /// Last business date included (organization time zone).
+  asOf               DateTime  @map("as_of") @db.Date
+  /// organizations.data_version the run read; stale once the organization's version moves on.
+  dataVersion        BigInt    @map("data_version")
+  status             RunStatus @default(RUNNING)
+  /// Metric key → definition version used, e.g. { "retention_rate": 1 }
+  definitionVersions Json      @default("{}") @map("definition_versions")
+  /// Analytics settings used (active window, churn threshold, ...)
+  settings           Json      @default("{}")
+  /// Data-quality report: excluded rows by reason, guest share, suspected duplicates, outliers.
+  dataQuality        Json?     @map("data_quality")
+  /// Timings and row counts.
+  stats              Json?
+  error              String?
+  startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt         DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  @@index([organizationId, status, startedAt(sort: Desc)])
+  @@map("analytics_runs")
+}
+
+/// Per-customer metrics as of a run. Segment fields are added in M4.
+model AnalyticsCustomerMetrics {
+  runId              String          @map("run_id") @db.Uuid
+  customerId         String          @map("customer_id") @db.Uuid
+  organizationId     String          @map("organization_id") @db.Uuid
+  orderCount         Int             @map("order_count")
+  totalNetCents      BigInt          @map("total_net_cents")
+  aovCents           BigInt?         @map("aov_cents")
+  firstOrderDate     DateTime?       @map("first_order_date") @db.Date
+  lastOrderDate      DateTime?       @map("last_order_date") @db.Date
+  recencyDays        Int?            @map("recency_days")
+  tenureDays         Int?            @map("tenure_days")
+  /// Purchase days per 30 days of tenure.
+  frequencyPerMonth  Decimal?        @map("frequency_per_month") @db.Decimal(10, 4)
+  medianGapDays      Decimal?        @map("median_gap_days") @db.Decimal(10, 2)
+  lifecycleStatus    LifecycleStatus @map("lifecycle_status")
+  historicalClvCents BigInt          @map("historical_clv_cents")
+
+  @@id([runId, customerId])
+  @@index([organizationId, runId, lifecycleStatus])
+  @@index([organizationId, customerId])
+  @@map("analytics_customer_metrics")
+}
+
+enum Grain {
+  DAY
+  WEEK
+  MONTH
+  QUARTER
+}
+
+/// Time series of organization-level metrics as of a run.
+model AnalyticsPeriodMetric {
+  id             BigInt   @id @default(autoincrement())
+  runId          String   @map("run_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  grain          Grain
+  periodStart    DateTime @map("period_start") @db.Date
+  metricKey      String   @map("metric_key")
+  segmentKey     String   @default("_all") @map("segment_key")
+  value          Decimal? @db.Decimal(20, 6)
+  numerator      Decimal? @db.Decimal(20, 6)
+  denominator    Decimal? @db.Decimal(20, 6)
+
+  @@unique([runId, grain, periodStart, metricKey, segmentKey])
+  @@index([organizationId, metricKey, grain, periodStart])
+  @@map("analytics_period_metrics")
+}
+
+/// Results of on-demand analytics queries. An entry is valid only while the organization's
+/// data_version equals the one it was computed from (ADR-0009).
+model AnalyticsQueryCache {
+  organizationId String   @map("organization_id") @db.Uuid
+  metric         String
+  paramsHash     String   @map("params_hash")
+  dataVersion    BigInt   @map("data_version")
+  result         Json
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([organizationId, metric, paramsHash, dataVersion])
+  @@index([organizationId, createdAt])
+  @@map("analytics_query_cache")
+}
+
 // ───────────── Operations ─────────────
 
 /// Append-only audit trail of security-relevant and data-changing actions (PLT-01).

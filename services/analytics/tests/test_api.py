@@ -46,7 +46,7 @@ def test_internal_routes_require_service_token() -> None:
 def test_internal_routes_accept_valid_token() -> None:
     res = client().get("/internal/definitions", headers={"X-Service-Token": TOKEN})
     assert res.status_code == 200
-    assert res.json() == {"data": []}
+    assert len(res.json()["data"]) > 0
 
 
 def test_public_docs_are_disabled() -> None:

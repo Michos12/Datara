@@ -4,9 +4,10 @@ Customer analytics and business intelligence SaaS for small and medium-sized bus
 turns customer and order data into documented metrics: retention, churn, cohorts, RFM
 segments, customer lifetime value, and rule-based recommendations.
 
-> **Status:** Milestones **M0–M2** are done: accounts and organizations, row-level security on
-> every tenant table, customers and orders, CSV import with validation reports, and synthetic demo
-> data. Analytics (the Overview KPIs) arrive in M3. See the [roadmap](docs/06-roadmap.md).
+> **Status:** The **MVP (M0–M3)** is in place: accounts and organizations, row-level security on
+> every tenant table, customers and orders, CSV import, demo data, and the Business Overview with
+> documented KPIs, trends, nightly analytics snapshots and CSV export. Segmentation comes next (M4).
+> See the [roadmap](docs/06-roadmap.md).
 
 ## Architecture at a glance
 

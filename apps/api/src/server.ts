@@ -16,6 +16,7 @@ const app = createApp({
   logger,
   health: createHealthChecks(prisma, analytics),
   database: new Database(prisma),
+  analytics,
 });
 
 const server = app.listen(config.port, () => {

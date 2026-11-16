@@ -3,7 +3,7 @@ import type { ImportEntity, ImportOptions, ImportRowError } from '@ci/contracts'
 import { stringify } from 'csv-stringify';
 import type { Logger } from '../../core/logger.js';
 import {
-  bumpDataVersion,
+  recordDataChange,
   join,
   raw,
   sql,
@@ -260,7 +260,7 @@ async function commitImport(deps: ImportJobDeps, ctx: ImportContext): Promise<vo
   await flush();
 
   await db.run(scope, async (tx) => {
-    await bumpDataVersion(tx, ctx.organizationId);
+    await recordDataChange(tx, ctx.organizationId, { delayMs: 0, trigger: 'import' });
     const record = await tx.import.update({
       where: { id: ctx.importId },
       data: {
