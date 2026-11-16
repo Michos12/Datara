@@ -193,21 +193,21 @@ All writes to customers/orders/interactions bump `organizations.data_version` an
 
 All accept the common parameters in §1.7 where meaningful, and return the envelope in §1.6.
 
-| Method | Path                             | Roles | Returns                                                                                                                                                                                      |
-| ------ | -------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/analytics/overview`            | OANV  | KPI set with comparison deltas (§3.2).                                                                                                                                                       |
-| GET    | `/analytics/overview` (sections) | OANV  | The overview response includes `trend[]` per bucket: `revenueNet`, `orders`, `aov`, `buyers`, `newCustomers`, `returningCustomers`, `partial`. Separate trend endpoints were folded into it. |
-| GET    | `/analytics/retention`           | OANV  | Series: `retentionRate`, `retained`, `base` per period.                                                                                                                                      |
-| GET    | `/analytics/churn`               | OANV  | Series: `churnRate`, `churned`, `base`; breakdown by segment at period start.                                                                                                                |
-| GET    | `/analytics/churn/customers`     | OAN   | Customers who churned in the period (paginated).                                                                                                                                             |
-| GET    | `/analytics/cohorts`             | OANV  | `metric` ∈ {`retention`, `revenue_per_customer`, `cumulative_revenue`}; `maxPeriods` (default 12). Matrix (§3.3).                                                                            |
-| GET    | `/analytics/frequency`           | OANV  | Order-count histogram, repeat purchase rate, inter-purchase time stats, time-to-second-purchase distribution.                                                                                |
-| GET    | `/analytics/clv`                 | OANV  | Historical CLV: average, median, distribution, by cohort, by segment. With `includeEstimate=true`: predicted CLV section with `kind: "estimated"` and assumptions (P2).                      |
-| GET    | `/analytics/journey`             | OANV  | Lifecycle funnel and stage durations (P2).                                                                                                                                                   |
-| GET    | `/analytics/engagement`          | OANV  | Interaction volume by type/channel, engaged-customer rate, score distribution (P2).                                                                                                          |
-| GET    | `/analytics/status`              | OANV  | Latest run, whether the snapshot is stale, any pending recompute, and the last run's data-quality report.                                                                                    |
-| POST   | `/analytics/runs`                | OAN   | Recompute now: moves the pending recompute forward or queues one → `202` with the status.                                                                                                    |
-| GET    | `/analytics/definitions`         | OANV  | Metric registry: key, name, version, formula, period rules, kind (feeds the methodology page).                                                                                               |
+| Method | Path                             | Roles | Returns                                                                                                                                                                                                                                                                                                                   |
+| ------ | -------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/analytics/overview`            | OANV  | KPI set with comparison deltas (§3.2).                                                                                                                                                                                                                                                                                    |
+| GET    | `/analytics/overview` (sections) | OANV  | The overview response includes `trend[]` per bucket: `revenueNet`, `orders`, `aov`, `buyers`, `newCustomers`, `returningCustomers`, `partial`. Separate trend endpoints were folded into it.                                                                                                                              |
+| GET    | `/analytics/retention`           | OANV  | `start`/`end` (default: last 12 complete months), `grain` ∈ {`week`, `month`, `quarter`} (default: recommended from the median gap between purchases), `segment`. Series per whole bucket: `base`, `retained`, `rate`, 95% Wilson `low`/`high`, `lowSample`, `partial`; plus `recommendedGrain`.                          |
+| GET    | `/analytics/churn`               | OANV  | Same parameters. Series: `base` (alive at bucket start), `churned`, `rate` with Wilson interval, `reactivated`; `bySegment` (customers alive at the range start by their segment the day before, recomputed with the active rules); `totals`; `churnDays`.                                                                |
+| GET    | `/analytics/churn/customers`     | OAN   | Customers whose churn date falls in `start`/`end`, highest lifetime value first: facts (`lastPurchase`, `churnDate`, `orders`, `netCents`) plus name, email and latest-snapshot segment. Offset pagination: `limit` (≤ 200), `cursor`; `page.total`.                                                                      |
+| GET    | `/analytics/cohorts`             | OANV  | Cohort months starting in `start`/`end` (default: last 12 complete months), `maxPeriods` 1–36 (default 12), `segment`. Every cohort row carries all three views (`retention`, `revenuePerCustomer`, `cumulativeRevenuePerCustomer`) plus `active` counts and a size-weighted `average` row (§3.3); no `metric` parameter. |
+| GET    | `/analytics/frequency`           | OANV  | Order-count histogram, repeat purchase rate, inter-purchase time stats, time-to-second-purchase distribution.                                                                                                                                                                                                             |
+| GET    | `/analytics/clv`                 | OANV  | Historical CLV: average, median, distribution, by cohort, by segment. With `includeEstimate=true`: predicted CLV section with `kind: "estimated"` and assumptions (P2).                                                                                                                                                   |
+| GET    | `/analytics/journey`             | OANV  | Lifecycle funnel and stage durations (P2).                                                                                                                                                                                                                                                                                |
+| GET    | `/analytics/engagement`          | OANV  | Interaction volume by type/channel, engaged-customer rate, score distribution (P2).                                                                                                                                                                                                                                       |
+| GET    | `/analytics/status`              | OANV  | Latest run, whether the snapshot is stale, any pending recompute, and the last run's data-quality report.                                                                                                                                                                                                                 |
+| POST   | `/analytics/runs`                | OAN   | Recompute now: moves the pending recompute forward or queues one → `202` with the status.                                                                                                                                                                                                                                 |
+| GET    | `/analytics/definitions`         | OANV  | Metric registry: key, name, version, formula, period rules, kind (feeds the methodology page).                                                                                                                                                                                                                            |
 
 ### 2.10 Recommendations (P1)
 
@@ -242,12 +242,12 @@ All accept the common parameters in §1.7 where meaningful, and return the envel
 
 Reachable only on the private network; authenticated with a shared service token (`X-Service-Token`) and receives `organizationId` explicitly.
 
-| Method | Path                         | Description                                            |
-| ------ | ---------------------------- | ------------------------------------------------------ |
-| GET    | `/internal/health`           | Liveness.                                              |
-| POST   | `/internal/query/{metric}`   | `{ organizationId, params }` → computed result + meta. |
-| POST   | `/internal/segments/preview` | Dry-run a segment config.                              |
-| GET    | `/internal/definitions`      | Metric registry.                                       |
+| Method | Path                         | Description                                                                                                                                                                |
+| ------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/internal/health`           | Liveness.                                                                                                                                                                  |
+| POST   | `/internal/query/{metric}`   | `{ organizationId, params }` → computed result + meta. Metrics: `overview`, `retention`, `churn` (body includes the active `segmentConfig`), `churn/customers`, `cohorts`. |
+| POST   | `/internal/segments/preview` | Dry-run a segment config.                                                                                                                                                  |
+| GET    | `/internal/definitions`      | Metric registry.                                                                                                                                                           |
 
 ---
 
@@ -354,7 +354,7 @@ Reachable only on the private network; authenticated with a shared service token
 
 Rates report `changeType: "points"` (percentage-point difference), counts and money report relative change.
 
-### 3.3 `GET /analytics/cohorts?metric=retention`
+### 3.3 `GET /analytics/cohorts`
 
 ```json
 {
@@ -362,9 +362,26 @@ Rates report `changeType: "points"` (percentage-point difference), counts and mo
   "data": {
     "periods": [0, 1, 2, 3],
     "cohorts": [
-      { "cohort": "2026-06", "size": 210, "values": [1.0, 0.31, 0.24, 0.22] },
-      { "cohort": "2026-07", "size": 188, "values": [1.0, 0.28, 0.21, null] }
-    ]
+      {
+        "cohort": "2026-06",
+        "size": 210,
+        "lowSample": false,
+        "active": [210, 65, 50, 46],
+        "retention": [1.0, 0.31, 0.24, 0.22],
+        "revenuePerCustomer": [5240, 1610, 1250, 1100],
+        "cumulativeRevenuePerCustomer": [5240, 6850, 8100, 9200]
+      },
+      {
+        "cohort": "2026-07",
+        "size": 188,
+        "lowSample": false,
+        "active": [188, 53, 39, null],
+        "retention": [1.0, 0.28, 0.21, null],
+        "revenuePerCustomer": [5010, 1490, 1120, null],
+        "cumulativeRevenuePerCustomer": [5010, 6500, 7620, null]
+      }
+    ],
+    "average": { "size": 398, "retention": [1.0, 0.3, 0.23, 0.22], "…": "…" }
   }
 }
 ```

@@ -6,7 +6,8 @@ segments, customer lifetime value, and rule-based recommendations.
 
 > **Status:** The **MVP (M0–M3)** is in place: accounts and organizations, row-level security on
 > every tenant table, customers and orders, CSV import, demo data, and the Business Overview with
-> documented KPIs, trends, nightly analytics snapshots and CSV export. RFM segmentation (M4) is in place; behaviour analytics (M5) come next.
+> documented KPIs, trends, nightly analytics snapshots and CSV export. RFM segmentation (M4) and retention, churn and cohort analysis (M5) are in place;
+> purchase frequency, CLV and journey analytics (M6) come next.
 > See the [roadmap](docs/06-roadmap.md).
 
 ## Architecture at a glance

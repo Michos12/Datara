@@ -213,6 +213,19 @@ gantt
 
 ## M5 — Retention, churn and cohort analysis (≈3 weeks)
 
+> **Status (2026-11-16): implemented.** Notes on what changed from the plan:
+>
+> - One Behavior page (`/analytics`) with Retention, Churn and Cohorts tabs instead of three
+>   pages; period, grain and segment filters; CSV download for every chart and the churn list.
+> - Cohort cells are computed on read (cached by data version), not stored in
+>   `analytics_cohort_cells`. One response carries all three views, so the toggle needs no request.
+> - Churn by segment uses each customer's segment the day before the range, recomputed with the
+>   active rules: the latest snapshot's segment would mostly say "Lost" for churned customers.
+> - The recommended grain is month or quarter (median gap > 60 days → quarter); weekly is
+>   available but never recommended.
+> - Planted churn wave: the datagen end-to-end test asserts the wave cohort has the lowest
+>   1–3-month retention of its neighbours; in the demo tenant it shows as ~4% vs ~35%.
+
 **Functional requirements:** ANA-01, 02, 03, 10; ANA-08 (CSV for these charts).
 
 **Technical implementation**

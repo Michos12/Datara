@@ -43,6 +43,7 @@ const PAGES_BUILT = new Set([
   '/imports',
   '/methodology',
   '/segments',
+  '/analytics',
 ]);
 
 export const routes: RouteObject[] = [
@@ -91,6 +92,13 @@ export const routes: RouteObject[] = [
             lazy: () =>
               import('../features/segments/SegmentsPage').then((m) => ({
                 Component: m.SegmentsPage,
+              })),
+          },
+          {
+            path: 'analytics',
+            lazy: () =>
+              import('../features/behavior/BehaviorPage').then((m) => ({
+                Component: m.BehaviorPage,
               })),
           },
           ...NAV_ITEMS.filter((item) => !PAGES_BUILT.has(item.path)).map((item) => ({

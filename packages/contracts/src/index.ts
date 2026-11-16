@@ -6,3 +6,4 @@ export * from './customers.js';
 export * from './imports.js';
 export * from './analytics.js';
 export * from './segments.js';
+export * from './behavior.js';

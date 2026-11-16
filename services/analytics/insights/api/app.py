@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field, model_validator
 
 from insights.db import HealthProbe
 from insights.definitions import DEFINITIONS
+from insights.metrics.rfm import SegmentConfig
+from insights.periods import Period
 
 
 class HealthChecks(BaseModel):
@@ -47,6 +49,47 @@ class OverviewQuery(BaseModel):
         return self
 
 
+SEGMENT_PATTERN = r"^[a-z][a-z0-9_]{1,39}$"
+
+
+class BehaviorQuery(BaseModel):
+    """Common parameters of the retention, churn and cohort queries."""
+
+    organization_id: UUID = Field(alias="organizationId")
+    start: date | None = None
+    end: date | None = None
+    segment: str | None = Field(default=None, pattern=SEGMENT_PATTERN)
+    run_id: UUID | None = Field(default=None, alias="runId")
+
+    @model_validator(mode="after")
+    def check_range(self) -> "BehaviorQuery":
+        if (self.start is None) != (self.end is None):
+            raise ValueError("Provide both start and end, or neither")
+        if self.start and self.end:
+            if self.end <= self.start:
+                raise ValueError("end must be after start")
+            if self.end - self.start > timedelta(days=366 * 5):
+                raise ValueError("The period can be at most five years")
+        return self
+
+    @property
+    def period(self) -> Period | None:
+        return Period(self.start, self.end) if self.start and self.end else None
+
+
+class SeriesQuery(BehaviorQuery):
+    grain: Literal["week", "month", "quarter"] | None = None
+
+
+class ChurnQuery(SeriesQuery):
+    # Active segment configuration, validated by the API against packages/contracts.
+    segment_config: dict[str, Any] = Field(alias="segmentConfig")
+
+
+class CohortQuery(BehaviorQuery):
+    max_periods: int = Field(default=12, ge=1, le=36, alias="maxPeriods")
+
+
 class SegmentPreviewQuery(BaseModel):
     organization_id: UUID = Field(alias="organizationId")
     # Validated by the API against packages/contracts segmentConfigSchema before forwarding.
@@ -66,6 +109,42 @@ class AnalyticsQueries(Protocol):
     ) -> dict[str, Any]: ...
 
     def segment_preview(self, organization_id: UUID, config: dict[str, Any]) -> dict[str, Any]: ...
+
+    def retention(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        grain: Literal["week", "month", "quarter"] | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
+    def churn(
+        self,
+        organization_id: UUID,
+        config: dict[str, Any],
+        period: Period | None,
+        grain: Literal["week", "month", "quarter"] | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
+    def churned_customers(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
+    def cohorts(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        max_periods: int,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
 
 
 def create_app(
@@ -135,6 +214,68 @@ def create_app(
         except LookupError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
+    def service() -> AnalyticsQueries:
+        if analytics is None:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Analytics not configured")
+        return analytics
+
+    def answer(compute: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        try:
+            return compute()
+        except LookupError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    @app.post("/internal/query/retention", dependencies=[Depends(require_service_token)])
+    def query_retention(query: SeriesQuery) -> dict[str, Any]:
+        queries = service()
+        return answer(
+            lambda: queries.retention(
+                query.organization_id, query.period, query.grain, query.segment, query.run_id
+            )
+        )
+
+    @app.post("/internal/query/churn", dependencies=[Depends(require_service_token)])
+    def query_churn(query: ChurnQuery) -> dict[str, Any]:
+        queries = service()
+        try:
+            SegmentConfig.from_dict(query.segment_config)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid segment configuration"
+            ) from exc
+        return answer(
+            lambda: queries.churn(
+                query.organization_id,
+                query.segment_config,
+                query.period,
+                query.grain,
+                query.segment,
+                query.run_id,
+            )
+        )
+
+    @app.post("/internal/query/churn/customers", dependencies=[Depends(require_service_token)])
+    def query_churned_customers(query: BehaviorQuery) -> dict[str, Any]:
+        queries = service()
+        return answer(
+            lambda: queries.churned_customers(
+                query.organization_id, query.period, query.segment, query.run_id
+            )
+        )
+
+    @app.post("/internal/query/cohorts", dependencies=[Depends(require_service_token)])
+    def query_cohorts(query: CohortQuery) -> dict[str, Any]:
+        queries = service()
+        return answer(
+            lambda: queries.cohorts(
+                query.organization_id,
+                query.period,
+                query.max_periods,
+                query.segment,
+                query.run_id,
+            )
+        )
+
     @app.post("/internal/segments/preview", dependencies=[Depends(require_service_token)])
     def segments_preview(query: SegmentPreviewQuery) -> dict[str, Any]:
         if analytics is None:
@@ -143,7 +284,7 @@ def create_app(
             return analytics.segment_preview(query.organization_id, query.config)
         except (KeyError, TypeError, ValueError) as exc:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid configuration"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid configuration"
             ) from exc
         except LookupError as exc:
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
