@@ -45,6 +45,10 @@ model Organization {
   memberships   Membership[]
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  customers     Customer[]
+  orders        Order[]
+  products      Product[]
+  imports       Import[]
 
   @@map("organizations")
 }
@@ -98,6 +102,152 @@ model Membership {
   @@unique([organizationId, userId])
   @@index([userId])
   @@map("memberships")
+}
+
+// ───────────── Customer data (M2) ─────────────
+// Money is integer minor units of the organization's currency. Timestamps are UTC.
+
+model Customer {
+  id               String    @id @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  /// ID in the tenant's source system; makes imports idempotent.
+  externalId       String?   @map("external_id")
+  firstName        String?   @map("first_name")
+  lastName         String?   @map("last_name")
+  email            String?   @db.Citext
+  phone            String?
+  /// ISO-3166 alpha-2
+  country          String?   @db.Char(2)
+  region           String?
+  city             String?
+  registeredAt     DateTime? @map("registered_at") @db.Date
+  tags             String[]  @default([])
+  attributes       Json      @default("{}")
+  marketingConsent Boolean   @default(false) @map("marketing_consent")
+  anonymizedAt     DateTime? @map("anonymized_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, email])
+  @@index([organizationId, createdAt])
+  @@map("customers")
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CANCELLED
+}
+
+model Order {
+  id             String      @id @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  /// Null for guest orders: they count toward revenue, not customer metrics.
+  customerId     String?     @map("customer_id") @db.Uuid
+  externalId     String?     @map("external_id")
+  orderedAt      DateTime    @map("ordered_at") @db.Timestamptz(6)
+  status         OrderStatus @default(COMPLETED)
+  channel        String?
+  grossCents     BigInt      @map("gross_cents")
+  discountCents  BigInt      @default(0) @map("discount_cents")
+  taxCents       BigInt      @default(0) @map("tax_cents")
+  refundedCents  BigInt      @default(0) @map("refunded_cents")
+  /// GENERATED ALWAYS AS (gross - discount - refunded) STORED, tax excluded (decision OPEN-3).
+  /// Read-only: defined in raw SQL in the migration.
+  netCents       BigInt      @default(dbgenerated()) @map("net_cents")
+  deletedAt      DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items        OrderItem[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, orderedAt])
+  @@index([organizationId, customerId, orderedAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String   @id @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  orderId        String   @map("order_id") @db.Uuid
+  productId      String?  @map("product_id") @db.Uuid
+  sku            String?
+  name           String
+  quantity       Int
+  unitPriceCents BigInt   @map("unit_price_cents")
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, orderId])
+  @@index([organizationId, productId])
+  @@map("order_items")
+}
+
+model Product {
+  id             String       @id @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  externalId     String?      @map("external_id")
+  name           String
+  category       String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items          OrderItem[]
+
+  @@unique([organizationId, externalId])
+  @@map("products")
+}
+
+enum ImportEntity {
+  CUSTOMERS
+  ORDERS
+}
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATING
+  VALIDATED
+  IMPORTING
+  COMPLETED
+  FAILED
+}
+
+/// A CSV import: upload → map columns → validate (background) → commit (background).
+model Import {
+  id             String       @id @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  entity         ImportEntity
+  status         ImportStatus @default(UPLOADED)
+  fileKey        String       @map("file_key")
+  originalName   String       @map("original_name")
+  sizeBytes      Int          @map("size_bytes")
+  /// { columns, mapping, options } once mapped
+  mapping        Json?
+  rowsTotal      Int          @default(0) @map("rows_total")
+  rowsValid      Int          @default(0) @map("rows_valid")
+  rowsFailed     Int          @default(0) @map("rows_failed")
+  rowsInserted   Int          @default(0) @map("rows_inserted")
+  rowsUpdated    Int          @default(0) @map("rows_updated")
+  /// First errors for display; the full list is in the error file.
+  errorSample    Json         @default("[]") @map("error_sample")
+  errorFileKey   String?      @map("error_file_key")
+  failureReason  String?      @map("failure_reason")
+  createdById    String       @map("created_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  finishedAt     DateTime?    @map("finished_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("imports")
 }
 
 // ───────────── Operations ─────────────

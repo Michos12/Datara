@@ -73,3 +73,57 @@ export async function apiRequest<T>(
 export function apiGet<T>(path: string, options: Omit<RequestOptions<T>, 'body'> = {}): Promise<T> {
   return apiRequest('GET', path, options);
 }
+
+/** Uploads a file as the raw request body (used for CSV imports), with the same auth handling. */
+export async function apiUpload<T>(
+  path: string,
+  file: Blob,
+  contentType: string,
+  schema?: z.ZodType<T>,
+): Promise<T> {
+  const post = () =>
+    fetch(`${BASE}${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': contentType,
+        ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
+      },
+      body: file,
+    });
+  let res = await post();
+  if (res.status === 401 && getAccessToken() && (await refreshAccessToken())) res = await post();
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const parsed = problemSchema.safeParse(body);
+    throw new ApiError(res.status, parsed.success ? parsed.data : null);
+  }
+  return schema ? schema.parse(body) : (body as T);
+}
+
+/**
+ * Downloads an authenticated file (an <a href> cannot send the Authorization header) and hands
+ * it to the browser as a normal download.
+ */
+export async function apiDownload(path: string, fallbackName: string): Promise<void> {
+  const get = () =>
+    fetch(`${BASE}${path}`, {
+      credentials: 'include',
+      headers: getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {},
+    });
+  let res = await get();
+  if (res.status === 401 && getAccessToken() && (await refreshAccessToken())) res = await get();
+  if (!res.ok) {
+    const parsed = problemSchema.safeParse(await res.json().catch(() => null));
+    throw new ApiError(res.status, parsed.success ? parsed.data : null);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const name = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}

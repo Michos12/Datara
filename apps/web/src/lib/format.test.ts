@@ -37,3 +37,9 @@ describe('formatNumber', () => {
     expect(formatNumber(4120, { locale: 'en-US' })).toBe('4,120');
   });
 });
+
+describe('formatMoney minor units (ISO 4217, shared with the API)', () => {
+  it('treats COP amounts as centavos even though Intl displays whole pesos', () => {
+    expect(formatMoney(1_200_000, 'COP', { locale: 'en-US' })).toMatch(/^COP\s12,000$/);
+  });
+});

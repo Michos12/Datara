@@ -1,5 +1,8 @@
 import { newId } from '../core/ids.js';
-import type { PrismaClient } from './prisma.js';
+import type { PrismaClient, TransactionClient } from './prisma.js';
+
+/** Anything that can run raw SQL: the root client or a transaction (enqueue atomically with a change). */
+type SqlRunner = Pick<TransactionClient, '$executeRaw'>;
 
 /**
  * Postgres-backed job queue (ADR-0003). Workers claim with FOR UPDATE SKIP LOCKED, so
@@ -32,19 +35,26 @@ export function retryDelayMs(attempts: number): number {
   return Math.min(delay, 60 * 60_000);
 }
 
-/** Inserts a job. Returns false if a uniqueness rule (e.g. one pending recompute) suppressed it. */
-export async function enqueueJob(prisma: PrismaClient, input: EnqueueInput): Promise<boolean> {
+/**
+ * Inserts a job and returns its ID, or null if a uniqueness rule (e.g. one pending recompute
+ * per organization) suppressed it.
+ */
+export async function enqueueJob(
+  prisma: SqlRunner | PrismaClient,
+  input: EnqueueInput,
+): Promise<string | null> {
+  const id = newId();
   const inserted = await prisma.$executeRaw`
     INSERT INTO jobs (id, organization_id, type, payload, run_after)
     VALUES (
-      ${newId()}::uuid,
+      ${id}::uuid,
       ${input.organizationId ?? null}::uuid,
       ${input.type},
       ${JSON.stringify(input.payload ?? {})}::jsonb,
       ${input.runAfter ?? new Date()}
     )
     ON CONFLICT DO NOTHING`;
-  return inserted === 1;
+  return inserted === 1 ? id : null;
 }
 
 interface JobRow {

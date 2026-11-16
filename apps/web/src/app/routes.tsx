@@ -4,6 +4,9 @@ import { Card, PageHeader } from '../components/PageHeader';
 import { RedirectIfAuthenticated, RequireAuth } from '../features/auth/guards';
 import { LoginPage } from '../features/auth/LoginPage';
 import { SignupPage } from '../features/auth/SignupPage';
+import { CustomerProfilePage } from '../features/customers/CustomerProfilePage';
+import { CustomersPage } from '../features/customers/CustomersPage';
+import { ImportsPage } from '../features/imports/ImportsPage';
 import { ComingSoonPage } from '../features/placeholder/ComingSoonPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { AppShell } from './AppShell';
@@ -32,7 +35,7 @@ function ErrorView({ notFound }: { notFound: boolean }) {
   );
 }
 
-const PAGES_BUILT = new Set(['/', '/settings']);
+const PAGES_BUILT = new Set(['/', '/settings', '/customers', '/imports']);
 
 export const routes: RouteObject[] = [
   {
@@ -71,6 +74,9 @@ export const routes: RouteObject[] = [
               })),
           },
           { path: 'settings', element: <SettingsPage /> },
+          { path: 'customers', element: <CustomersPage /> },
+          { path: 'customers/:id', element: <CustomerProfilePage /> },
+          { path: 'imports', element: <ImportsPage /> },
           ...NAV_ITEMS.filter((item) => !PAGES_BUILT.has(item.path)).map((item) => ({
             path: item.path.slice(1),
             element: <ComingSoonPage item={item} />,

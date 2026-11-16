@@ -15,5 +15,6 @@ superseded ADR is kept and marked as such; new ADRs get the next number.
 | [0008](0008-monorepo-npm-workspaces.md)       | Monorepo with npm workspaces                                 | Accepted |
 | [0009](0009-snapshots-and-versioned-cache.md) | Precomputed snapshots plus a data-versioned query cache      | Accepted |
 | [0010](0010-toolchain-versions.md)            | Toolchain baseline (Prisma 7, Vite 8, React Router 8, ...)   | Accepted |
+| [0011](0011-currency-minor-units.md)          | Money in ISO 4217 minor units, one table shared by all code  | Accepted |
 
 Design context for all of these: [../02-architecture.md](../02-architecture.md).

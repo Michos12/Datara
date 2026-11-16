@@ -15,6 +15,8 @@ let a: TestSession;
 let b: TestSession;
 let orgA: string;
 let orgB: string;
+/** Records owned by B that A will try to reach. */
+const bData = { customerId: '', orderId: '', importId: '' };
 
 beforeAll(async () => {
   a = await signup(ctx.app, {
@@ -25,8 +27,21 @@ beforeAll(async () => {
   });
   orgA = a.body.organization.id;
   orgB = b.body.organization.id;
-  // Give B some audit history that A must never see.
-  await authed(ctx.app, b.accessToken).patch('/organization', { name: 'Tenant B (secret)' });
+  // Give B data that A must never see.
+  const bApi = authed(ctx.app, b.accessToken);
+  await bApi.patch('/organization', { name: 'Tenant B (secret)' });
+  bData.customerId = (
+    await bApi.post('/customers', { externalId: 'B-SECRET', firstName: 'Secret' })
+  ).body.id;
+  bData.orderId = (
+    await bApi.post('/orders', {
+      customerId: bData.customerId,
+      orderedAt: '2026-10-01T00:00:00Z',
+      grossCents: 999,
+    })
+  ).body.id;
+  bData.importId = (await bApi.upload('customers', 'id\nB-2\n')).body.import.id;
+  await authed(ctx.app, a.accessToken).post('/customers', { externalId: 'A-1', firstName: 'Own' });
 });
 afterAll(() => ctx.close());
 
@@ -58,6 +73,24 @@ describe('HTTP layer', () => {
     },
   ];
 
+  endpoints.push(
+    {
+      path: '/customers?limit=200',
+      assert: (body) => {
+        const ids = (body as { data: { externalId: string }[] }).data.map((c) => c.externalId);
+        expect(ids).toEqual(['A-1']);
+      },
+    },
+    {
+      path: '/orders?limit=200',
+      assert: (body) => expect((body as { data: unknown[] }).data).toHaveLength(0),
+    },
+    {
+      path: '/imports',
+      assert: (body) => expect((body as { data: unknown[] }).data).toHaveLength(0),
+    },
+  );
+
   it.each(endpoints)("$path returns only the caller's organization", async ({ path, assert }) => {
     const res = await authed(ctx.app, a.accessToken).get(path);
     expect(res.status).toBe(200);
@@ -73,7 +106,88 @@ describe('HTTP layer', () => {
   });
 });
 
+describe("HTTP layer: B's records by ID", () => {
+  /** [label, method, path, body]: bodies are valid, so only ownership can cause the 404. */
+  const cases: [string, 'GET' | 'PATCH' | 'DELETE' | 'POST' | 'PUT', () => string, object?][] = [
+    ['read customer', 'GET', () => `/customers/${bData.customerId}`],
+    ['edit customer', 'PATCH', () => `/customers/${bData.customerId}`, { firstName: 'Hijacked' }],
+    ['delete customer', 'DELETE', () => `/customers/${bData.customerId}`],
+    ['restore customer', 'POST', () => `/customers/${bData.customerId}/restore`],
+    ["list customer's orders", 'GET', () => `/customers/${bData.customerId}/orders`],
+    ['read order', 'GET', () => `/orders/${bData.orderId}`],
+    ['edit order', 'PATCH', () => `/orders/${bData.orderId}`, { grossCents: 1 }],
+    ['delete order', 'DELETE', () => `/orders/${bData.orderId}`],
+    ['read import', 'GET', () => `/imports/${bData.importId}`],
+    [
+      'map import',
+      'PUT',
+      () => `/imports/${bData.importId}/mapping`,
+      { mapping: { externalId: 'id' } },
+    ],
+    ['commit import', 'POST', () => `/imports/${bData.importId}/commit`],
+    ['download import errors', 'GET', () => `/imports/${bData.importId}/errors.csv`],
+  ];
+
+  it.each(cases)('%s answers 404 to another tenant', async (_label, method, path, body) => {
+    const api = authed(ctx.app, a.accessToken);
+    const url = path();
+    const res =
+      method === 'GET'
+        ? await api.get(url)
+        : method === 'DELETE'
+          ? await api.delete(url)
+          : method === 'POST'
+            ? await api.post(url, body)
+            : method === 'PUT'
+              ? await api.put(url, body ?? {})
+              : await api.patch(url, body ?? {});
+    expect(res.status).toBe(404);
+  });
+
+  it("cannot attach an order to another tenant's customer", async () => {
+    const res = await authed(ctx.app, a.accessToken).post('/orders', {
+      customerId: bData.customerId,
+      orderedAt: '2026-10-01T00:00:00Z',
+      grossCents: 1,
+    });
+    expect(res.status).toBe(422);
+    const secret = await ctx.owner.customer.findUnique({ where: { id: bData.customerId } });
+    expect(secret?.firstName).toBe('Secret');
+  });
+});
+
 describe('database layer (row-level security, app filters bypassed)', () => {
+  it('hides customer data tables across tenants and without context', async () => {
+    await ctx.db.run({ organizationId: orgA }, async (tx) => {
+      expect((await tx.customer.findMany()).every((c) => c.organizationId === orgA)).toBe(true);
+      expect(await tx.order.count()).toBe(0);
+      expect(await tx.import.count()).toBe(0);
+      expect(await tx.customer.count({ where: { id: bData.customerId } })).toBe(0);
+    });
+    await ctx.db.run({}, async (tx) => {
+      expect(await tx.customer.count()).toBe(0);
+      expect(await tx.order.count()).toBe(0);
+      expect(await tx.import.count()).toBe(0);
+      expect(await tx.product.count()).toBe(0);
+      expect(await tx.orderItem.count()).toBe(0);
+    });
+  });
+
+  it('cannot write customers or orders into another tenant', async () => {
+    await expect(
+      ctx.db.run({ organizationId: orgA }, (tx) =>
+        tx.customer.create({ data: { id: newId(), organizationId: orgB, firstName: 'Forged' } }),
+      ),
+    ).rejects.toThrow(/row-level security|violates/i);
+    await expect(
+      ctx.db.run({ organizationId: orgA }, (tx) =>
+        tx.order.create({
+          data: { id: newId(), organizationId: orgB, orderedAt: new Date(), grossCents: 1n },
+        }),
+      ),
+    ).rejects.toThrow(/row-level security|violates/i);
+  });
+
   it('shows only the active tenant even for unfiltered queries', async () => {
     await ctx.db.run({ organizationId: orgA }, async (tx) => {
       const orgs = await tx.organization.findMany();
