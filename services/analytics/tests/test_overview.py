@@ -84,6 +84,9 @@ class CountingLoader:
     def members(self, organization_id: UUID, run_id: UUID | None, segment: str) -> set[str]:
         return {"A", "B"} if segment == "loyal" else set()
 
+    def assignments(self, organization_id: UUID, run_id: UUID | None) -> dict[str, str | None]:
+        return {"A": "loyal", "B": "loyal", "C": "lost", "D": None}
+
 
 def test_service_reuses_loaded_data_until_the_version_changes() -> None:
     loader = CountingLoader()

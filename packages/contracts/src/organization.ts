@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { engagementSettingsSchema } from './interactions.js';
 
 export const ROLES = ['OWNER', 'ADMIN', 'ANALYST', 'VIEWER'] as const;
 export const roleSchema = z.enum(ROLES);
@@ -96,6 +97,8 @@ export const organizationSettingsSchema = z
       .refine((p) => p[0] > 0 && p.every((v, i) => i === 0 || v > p[i - 1]!), {
         message: 'Cut points must be positive and strictly increasing',
       }),
+    /** Engagement score weights; defaults (DEFAULT_ENGAGEMENT_SETTINGS) apply when absent. */
+    engagement: engagementSettingsSchema.optional(),
   })
   .refine((s) => s.churnDays > s.activeWindowDays, {
     message: 'Churn threshold must be longer than the active window',

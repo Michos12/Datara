@@ -1,11 +1,15 @@
 import {
+  DEFAULT_ENGAGEMENT_SETTINGS,
   GRAINS,
+  INTERACTION_TYPES,
   INDUSTRIES,
   INDUSTRY_PRESETS,
   organizationSchema,
   updateOrganizationRequestSchema,
   WEEK_STARTS,
+  type EngagementSettings,
   type Industry,
+  type InteractionType,
   type OrganizationSettings,
 } from '@ci/contracts';
 import { useMemo, useState, type FormEvent } from 'react';
@@ -52,6 +56,11 @@ export function SettingsPage() {
       points[index] = value;
       return { ...d, settings: { ...d.settings, recencyCutPoints: points } };
     });
+
+  const engagement: EngagementSettings = draft.settings.engagement ?? DEFAULT_ENGAGEMENT_SETTINGS;
+  const setEngagement = (next: EngagementSettings) => setSetting('engagement', next);
+  const setWeight = (type: InteractionType, value: number) =>
+    setEngagement({ ...engagement, weights: { ...engagement.weights, [type]: value } });
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -150,7 +159,16 @@ export function SettingsPage() {
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setDraft((d) => ({ ...d, settings: INDUSTRY_PRESETS[d.industry] }))}
+                onClick={() =>
+                  setDraft((d) => ({
+                    ...d,
+                    // Engagement weights are not industry-specific: keep them.
+                    settings: {
+                      ...INDUSTRY_PRESETS[d.industry],
+                      ...(d.settings.engagement ? { engagement: d.settings.engagement } : {}),
+                    },
+                  }))
+                }
               >
                 {t('settings.applyPreset', { industry: t(`industries.${draft.industry}`) })}
               </Button>
@@ -198,6 +216,55 @@ export function SettingsPage() {
               {fieldErrors['settings.recencyCutPoints'] ?? t('settings.recencyHint')}
             </p>
           </fieldset>
+        </Card>
+
+        <Card>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">{t('settings.engagement')}</h2>
+              <p className="mt-1 max-w-xl text-xs text-ink-muted">
+                {t('settings.engagementDescription')}
+              </p>
+            </div>
+            {canEdit && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEngagement(DEFAULT_ENGAGEMENT_SETTINGS)}
+              >
+                {t('settings.engagementDefaults')}
+              </Button>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {INTERACTION_TYPES.map((type) => (
+              <TextField
+                key={type}
+                label={t(`interactions.types.${type}`)}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={10}
+                value={engagement.weights[type]}
+                onChange={(e) => setWeight(type, Number(e.target.value))}
+                error={fieldErrors[`settings.engagement.weights.${type}`]}
+                disabled={!canEdit}
+              />
+            ))}
+          </div>
+          <div className="mt-4 max-w-xs">
+            <TextField
+              label={t('settings.engagementCap')}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={100}
+              value={engagement.cap}
+              onChange={(e) => setEngagement({ ...engagement, cap: Number(e.target.value) })}
+              error={fieldErrors['settings.engagement.cap']}
+              disabled={!canEdit}
+            />
+          </div>
         </Card>
 
         {canEdit && (

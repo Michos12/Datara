@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const IMPORT_ENTITIES = ['customers', 'orders'] as const;
+export const IMPORT_ENTITIES = ['customers', 'orders', 'interactions'] as const;
 export const importEntitySchema = z.enum(IMPORT_ENTITIES);
 export type ImportEntity = z.infer<typeof importEntitySchema>;
 
@@ -191,6 +191,46 @@ export const IMPORT_FIELDS: Record<ImportEntity, ImportFieldDefinition[]> = {
       label: 'Channel',
       required: false,
       description: 'e.g. online, in_store.',
+      synonyms: ['channel', 'source', 'canal'],
+    },
+  ],
+  interactions: [
+    {
+      key: 'externalId',
+      label: 'Interaction ID',
+      required: true,
+      description: 'Unique ID from your system. Re-importing the same ID updates the interaction.',
+      synonyms: ['externalid', 'interactionid', 'eventid', 'id'],
+    },
+    {
+      key: 'customerExternalId',
+      label: 'Customer ID',
+      required: true,
+      description: 'Must match an imported customer.',
+      synonyms: ['customerexternalid', 'customerid', 'clientid', 'idcliente', 'customer'],
+    },
+    {
+      key: 'type',
+      label: 'Type',
+      required: true,
+      description:
+        'website_visit, email_sent, email_opened, email_clicked, support_ticket, review, ' +
+        'loyalty_signup, campaign_response or other.',
+      synonyms: ['type', 'eventtype', 'interactiontype', 'event', 'tipo'],
+    },
+    {
+      key: 'occurredAt',
+      label: 'Date',
+      required: true,
+      description:
+        'Date or date and time. Dates without a time zone use your organization’s time zone.',
+      synonyms: ['occurredat', 'date', 'datetime', 'timestamp', 'createdat', 'fecha'],
+    },
+    {
+      key: 'channel',
+      label: 'Channel',
+      required: false,
+      description: 'e.g. email, web, phone.',
       synonyms: ['channel', 'source', 'canal'],
     },
   ],

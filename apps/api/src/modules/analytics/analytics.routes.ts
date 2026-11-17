@@ -3,6 +3,7 @@ import {
   churnedCustomersQuerySchema,
   cohortsQuerySchema,
   overviewQuerySchema,
+  valueQuerySchema,
 } from '@ci/contracts';
 import { Router } from 'express';
 import { clientIp, getAuth } from '../../core/request-context.js';
@@ -10,13 +11,15 @@ import { requireAuth, requireRole } from '../auth/auth.middleware.js';
 import type { TokenService } from '../auth/tokens.js';
 import type { AnalyticsService } from './analytics.service.js';
 import type { BehaviorService } from './behavior.service.js';
+import type { ValueService } from './value.service.js';
 
 export function analyticsRouter(deps: {
   analytics: AnalyticsService;
   behavior: BehaviorService;
+  value: ValueService;
   tokens: TokenService;
 }): Router {
-  const { analytics, behavior } = deps;
+  const { analytics, behavior, value } = deps;
   const router = Router();
   router.use('/analytics', requireAuth(deps.tokens));
 
@@ -46,6 +49,13 @@ export function analyticsRouter(deps: {
   router.get('/analytics/cohorts', async (req, res) => {
     res.json(await behavior.cohorts(getAuth(req), cohortsQuerySchema.parse(req.query)));
   });
+
+  // Customer value (M6): frequency, CLV, journey, engagement. Aggregates only, so viewers too.
+  for (const kind of ['frequency', 'clv', 'journey', 'engagement'] as const) {
+    router.get(`/analytics/${kind}`, async (req, res) => {
+      res.json(await value[kind](getAuth(req), valueQuerySchema.parse(req.query)));
+    });
+  }
 
   router.get('/analytics/definitions', async (_req, res) => {
     res.json(await analytics.definitions());

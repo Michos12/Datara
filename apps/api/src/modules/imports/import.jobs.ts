@@ -24,6 +24,7 @@ import {
   type MappedRow,
   type ParseContext,
   type ParsedCustomer,
+  type ParsedInteraction,
   type ParsedOrder,
   type RowError,
 } from './parsing.js';
@@ -131,13 +132,17 @@ async function customerIdsByExternalId(
   return new Map(rows.map((r) => [r.external_id, r.id]));
 }
 
+type Parsed = ParsedCustomer | ParsedOrder | ParsedInteraction;
+
+/** Orders and interactions refer to customers by external ID. */
+const needsCustomers = (entity: ImportEntity) => entity !== 'customers';
+
 type Checked =
-  | { ok: true; value: ParsedCustomer | ParsedOrder; line: number }
-  | { ok: false; errors: RowError[]; line: number };
+  { ok: true; value: Parsed; line: number } | { ok: false; errors: RowError[]; line: number };
 
 /**
  * Parses and cross-checks every row: field values, duplicate IDs inside the file, and (for
- * orders) that the customer exists. Shared by validation and commit so both agree exactly.
+ * orders and interactions) that the customer exists. Shared by validation and commit so both agree exactly.
  */
 async function* checkedRows(
   deps: ImportJobDeps,
@@ -175,12 +180,11 @@ async function* checkedRows(
 }
 
 async function validateImport(deps: ImportJobDeps, ctx: ImportContext): Promise<void> {
-  const known =
-    ctx.entity === 'orders'
-      ? await deps.db.run({ organizationId: ctx.organizationId }, (tx) =>
-          customerIdsByExternalId(tx, ctx.organizationId),
-        )
-      : null;
+  const known = needsCustomers(ctx.entity)
+    ? await deps.db.run({ organizationId: ctx.organizationId }, (tx) =>
+        customerIdsByExternalId(tx, ctx.organizationId),
+      )
+    : null;
 
   const errorKey = `imports/${ctx.organizationId}/${ctx.importId}.errors.csv`;
   await deps.storage.ensureDir(errorKey);
@@ -226,15 +230,14 @@ async function validateImport(deps: ImportJobDeps, ctx: ImportContext): Promise<
 async function commitImport(deps: ImportJobDeps, ctx: ImportContext): Promise<void> {
   const db = deps.db;
   const scope = { organizationId: ctx.organizationId };
-  const known =
-    ctx.entity === 'orders'
-      ? await db.run(scope, (tx) => customerIdsByExternalId(tx, ctx.organizationId))
-      : null;
+  const known = needsCustomers(ctx.entity)
+    ? await db.run(scope, (tx) => customerIdsByExternalId(tx, ctx.organizationId))
+    : null;
 
   let inserted = 0;
   let updated = 0;
   let failed = 0;
-  let batch: (ParsedCustomer | ParsedOrder)[] = [];
+  let batch: Parsed[] = [];
 
   const flush = async () => {
     if (batch.length === 0) return;
@@ -243,7 +246,9 @@ async function commitImport(deps: ImportJobDeps, ctx: ImportContext): Promise<vo
     const result = await db.run(scope, (tx) =>
       ctx.entity === 'customers'
         ? upsertCustomers(tx, ctx, rows as ParsedCustomer[])
-        : upsertOrders(tx, ctx, rows as ParsedOrder[], known!),
+        : ctx.entity === 'orders'
+          ? upsertOrders(tx, ctx, rows as ParsedOrder[], known!)
+          : upsertInteractions(tx, ctx, rows as ParsedInteraction[], known!),
     );
     inserted += result.inserted;
     updated += result.updated;
@@ -385,6 +390,34 @@ function upsertOrders(
     tx,
     sql`INSERT INTO orders (id, organization_id, external_id, customer_id, ordered_at, status, channel,
                             gross_cents, discount_cents, tax_cents, refunded_cents, updated_at)
+        VALUES ${join(values, ', ')}
+        ON CONFLICT (organization_id, external_id) DO UPDATE SET ${raw(updates.join(', '))}`,
+  );
+}
+
+/** Inserts or updates interactions by external ID. Channel is only overwritten when mapped. */
+function upsertInteractions(
+  tx: Tx,
+  ctx: ImportContext,
+  rows: ParsedInteraction[],
+  customers: Map<string, string>,
+) {
+  const values = rows.map(
+    (row) => sql`(${newId()}::uuid, ${ctx.organizationId}::uuid, ${row.externalId},
+      ${customers.get(row.customerExternalId) ?? null}::uuid,
+      ${row.type.toUpperCase()}::"InteractionType", ${row.channel}::text,
+      ${row.occurredAt}::timestamptz)`,
+  );
+  const updates = [
+    'customer_id = EXCLUDED.customer_id',
+    'type = EXCLUDED.type',
+    'occurred_at = EXCLUDED.occurred_at',
+  ];
+  if (ctx.mapping.channel) updates.push('channel = EXCLUDED.channel');
+  return countInserted(
+    tx,
+    sql`INSERT INTO interactions (id, organization_id, external_id, customer_id, type, channel,
+                                  occurred_at)
         VALUES ${join(values, ', ')}
         ON CONFLICT (organization_id, external_id) DO UPDATE SET ${raw(updates.join(', '))}`,
   );

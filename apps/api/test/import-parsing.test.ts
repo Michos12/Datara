@@ -8,6 +8,8 @@ import {
   parseCustomerRow,
   parseDateOnly,
   parseDateTime,
+  parseInteractionRow,
+  parseInteractionType,
   parseOrderRow,
   parseOrderStatus,
   parseTags,
@@ -261,5 +263,46 @@ describe('suggestMapping', () => {
   it('never maps one column to two fields', () => {
     const mapping = suggestMapping('customers', ['id']);
     expect(Object.values(mapping).filter((v) => v === 'id')).toHaveLength(1);
+  });
+});
+
+describe('interaction rows', () => {
+  it.each([
+    ['email_opened', 'email_opened'],
+    ['Email opened', 'email_opened'],
+    ['WEBSITE-VISIT', 'website_visit'],
+  ])('reads type %s', (raw, type) => {
+    expect(parseInteractionType(raw)).toBe(type);
+  });
+
+  it('rejects unknown types', () => {
+    expect(() => parseInteractionType('tweet')).toThrow(CellError);
+  });
+
+  it('parses a row and reports every problem', () => {
+    const ok = parseInteractionRow(
+      { externalId: 'E-1', customerExternalId: 'C-1', type: 'review', occurredAt: '2026-08-01' },
+      ctx,
+    );
+    expect(ok).toEqual({
+      ok: true,
+      value: {
+        externalId: 'E-1',
+        customerExternalId: 'C-1',
+        type: 'review',
+        occurredAt: new Date('2026-08-01T00:00:00Z'),
+        channel: null,
+      },
+    });
+    const bad = parseInteractionRow({ type: 'nope', occurredAt: '2027-01-01' }, ctx);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.errors.map((e) => e.field)).toEqual([
+        'externalId',
+        'customerExternalId',
+        'type',
+        'occurredAt',
+      ]);
+    }
   });
 });

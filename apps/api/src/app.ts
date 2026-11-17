@@ -13,6 +13,9 @@ import { FileStorage } from './infra/storage.js';
 import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { AnalyticsService } from './modules/analytics/analytics.service.js';
 import { BehaviorService } from './modules/analytics/behavior.service.js';
+import { ValueService } from './modules/analytics/value.service.js';
+import { interactionRouter } from './modules/interactions/interaction.routes.js';
+import { InteractionService } from './modules/interactions/interaction.service.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { DEFAULT_AUTH_RATE_LIMITS, type AuthRateLimits } from './modules/auth/rate-limits.js';
@@ -98,6 +101,9 @@ export function createApp(deps: AppDeps): Express {
         tokens,
       }),
     );
+    v1.use(
+      interactionRouter({ interactions: new InteractionService(deps.database, deps.now), tokens }),
+    );
     const storage = deps.storage ?? new FileStorage(config.storageDir);
     v1.use(importRouter({ imports: new ImportService(deps.database, storage), tokens }));
     v1.use(jobRouter({ db: deps.database, tokens }));
@@ -108,6 +114,7 @@ export function createApp(deps: AppDeps): Express {
       analyticsRouter({
         analytics: new AnalyticsService(deps.database, analyticsClient, deps.now),
         behavior: new BehaviorService(deps.database, analyticsClient, segments),
+        value: new ValueService(deps.database, analyticsClient),
         tokens,
       }),
     );

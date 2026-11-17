@@ -9,6 +9,7 @@ import { formatDate, formatDateTime, formatMoney, formatNumber } from '../../lib
 import { useSession } from '../auth/AuthProvider';
 import { SegmentBadge } from '../segments/SegmentBadge';
 import { CustomerFormDialog } from './CustomerForm';
+import { InteractionTimeline } from './InteractionTimeline';
 import { OrderFormDialog } from './OrderForm';
 import { customerKeys, displayName, useCustomer, useCustomerOrders } from './queries';
 
@@ -78,6 +79,16 @@ export function CustomerProfilePage() {
           [
             t('segments.scores'),
             `R${c.segment.rScore} · F${c.segment.fScore} · M${c.segment.mScore}`,
+          ],
+        ] as [string, string][])
+      : []),
+    ...(c.segment
+      ? ([
+          [
+            t('interactions.engagementScore'),
+            c.segment.engagementScore === null
+              ? t('interactions.engagementNone')
+              : `${c.segment.engagementScore} / 100`,
           ],
         ] as [string, string][])
       : []),
@@ -215,6 +226,13 @@ export function CustomerProfilePage() {
           )}
         </Card>
       </div>
+
+      <InteractionTimeline
+        customerId={c.id}
+        timezone={timezone}
+        canEdit={canEdit}
+        canDelete={canDelete}
+      />
 
       {editing && <CustomerFormDialog customer={c} onClose={() => setEditing(false)} />}
       {addingOrder && (

@@ -223,31 +223,39 @@ export function validateMapping(
 export function templateCsv(entity: ImportEntity): string {
   const fields = IMPORT_FIELDS[entity];
   const example: Record<string, string> =
-    entity === 'customers'
+    entity === 'interactions'
       ? {
-          externalId: 'C-1001',
-          firstName: 'Ana',
-          lastName: 'Pérez',
-          email: 'ana@example.com',
-          phone: '+57 300 000 0000',
-          country: 'CO',
-          region: 'Antioquia',
-          city: 'Medellín',
-          registeredAt: '2025-03-02',
-          tags: 'newsletter|vip',
-          marketingConsent: 'yes',
-        }
-      : {
-          externalId: 'O-5001',
+          externalId: 'I-9001',
           customerExternalId: 'C-1001',
-          orderedAt: '2026-10-05 14:30',
-          grossAmount: '120.00',
-          discountAmount: '10.00',
-          taxAmount: '19.00',
-          refundedAmount: '0',
-          status: 'completed',
-          channel: 'online',
-        };
+          type: 'email_clicked',
+          occurredAt: '2026-10-04 09:15',
+          channel: 'email',
+        }
+      : entity === 'customers'
+        ? {
+            externalId: 'C-1001',
+            firstName: 'Ana',
+            lastName: 'Pérez',
+            email: 'ana@example.com',
+            phone: '+57 300 000 0000',
+            country: 'CO',
+            region: 'Antioquia',
+            city: 'Medellín',
+            registeredAt: '2025-03-02',
+            tags: 'newsletter|vip',
+            marketingConsent: 'yes',
+          }
+        : {
+            externalId: 'O-5001',
+            customerExternalId: 'C-1001',
+            orderedAt: '2026-10-05 14:30',
+            grossAmount: '120.00',
+            discountAmount: '10.00',
+            taxAmount: '19.00',
+            refundedAmount: '0',
+            status: 'completed',
+            channel: 'online',
+          };
   const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   return `${String.fromCharCode(0xfeff)}${fields.map((f) => quote(f.key)).join(',')}\r\n${fields.map((f) => quote(example[f.key] ?? '')).join(',')}\r\n`;
 }

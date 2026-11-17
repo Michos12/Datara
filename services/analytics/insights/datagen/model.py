@@ -6,7 +6,9 @@ spend is right-skewed, and customers silently stop buying. Two patterns are plan
 analytics can later be checked against a known answer:
 
 * a VIP group (about 5%) that buys more often and spends more per order;
-* a "churn wave" acquisition cohort whose customers drop out much faster than everyone else.
+* a "churn wave" acquisition cohort whose customers drop out much faster than everyone else;
+* interactions that run ahead of purchases: engaged customers visit and click in the days before
+  they buy, so the engagement score should correlate with future purchases.
 
 Everything is driven by one seed: the same inputs always produce the same data.
 """
@@ -78,6 +80,7 @@ STATUS_WEIGHTS = {
 class GeneratedData:
     customers: pd.DataFrame
     orders: pd.DataFrame
+    interactions: pd.DataFrame = field(default_factory=pd.DataFrame)
     ground_truth: dict[str, Any] = field(default_factory=dict)
 
 
@@ -96,6 +99,7 @@ class GeneratorConfig:
     """Customers who registered but never bought."""
     guest_order_share: float = 0.05
     churn_wave_months_ago: int = 8
+    interactions: bool = True
 
 
 def generate(config: GeneratorConfig) -> GeneratedData:
@@ -139,6 +143,12 @@ def generate(config: GeneratorConfig) -> GeneratedData:
     statuses = list(STATUS_WEIGHTS)
     status_p = np.array(list(STATUS_WEIGHTS.values()))
 
+    # Interactions draw from their own stream so customers and orders stay identical per seed.
+    irng = np.random.default_rng([config.seed, 1])
+    engagement = irng.beta(2, 5, size=n)
+    engagement[is_vip] = np.clip(engagement[is_vip] * 1.6, 0, 0.95)
+    interaction_rows: list[dict[str, Any]] = []
+
     for i in range(n):
         external_id = f"C-{i + 1:06d}"
         first, last = rng.choice(FIRST_NAMES), rng.choice(LAST_NAMES)
@@ -163,14 +173,21 @@ def generate(config: GeneratorConfig) -> GeneratedData:
             continue
 
         day = acquired[i]
+        purchase_days: list[date] = []
         while day <= end:
             order_rows.append(
                 _order(rng, day, external_id, aov[i], tz, config.currency, channels, channel_p,
                        statuses, status_p)
             )  # fmt: skip
+            purchase_days.append(day)
             if rng.random() < dropout[i]:
                 break
             day += timedelta(days=max(1, round(rng.exponential(mean_gap[i]))))
+        if config.interactions:
+            interaction_rows += _interactions(
+                irng, external_id, purchase_days, acquired[i], end, float(engagement[i]),
+                bool(customer_rows[-1]["marketingConsent"]), tz,
+            )  # fmt: skip
 
     # Guest checkouts: revenue without a known customer.
     guests = int(len(order_rows) * config.guest_order_share)
@@ -184,6 +201,13 @@ def generate(config: GeneratorConfig) -> GeneratedData:
     orders = pd.DataFrame(order_rows).sort_values("orderedAt", kind="stable").reset_index(drop=True)
     orders.insert(0, "externalId", [f"O-{i + 1:07d}" for i in range(len(orders))])
     customers = pd.DataFrame(customer_rows)
+    interactions = pd.DataFrame(
+        interaction_rows,
+        columns=["externalId", "customerExternalId", "type", "channel", "occurredAt"],
+    )
+    if not interactions.empty:
+        interactions = interactions.sort_values("occurredAt", kind="stable").reset_index(drop=True)
+        interactions["externalId"] = [f"I-{i + 1:07d}" for i in range(len(interactions))]
 
     ground_truth = {
         "seed": config.seed,
@@ -198,10 +222,64 @@ def generate(config: GeneratorConfig) -> GeneratedData:
         "vip_customers": [f"C-{i + 1:06d}" for i in np.flatnonzero(is_vip)],
         "churn_wave_cohort": churn_wave_start.strftime("%Y-%m"),
         "churn_wave_customers": int(in_wave.sum()),
+        "interactions": len(interactions),
         "notes": "VIPs buy ~2x as often and spend ~2.5x per order; the churn-wave cohort "
-        "drops out ~3x faster than other cohorts.",
+        "drops out ~3x faster than other cohorts. Website visits and email clicks precede "
+        "purchases for engaged customers.",
     }
-    return GeneratedData(customers=customers, orders=orders, ground_truth=ground_truth)
+    return GeneratedData(
+        customers=customers, orders=orders, interactions=interactions, ground_truth=ground_truth
+    )
+
+
+def _interactions(
+    rng: np.random.Generator,
+    customer: str,
+    purchase_days: list[date],
+    acquired: date,
+    end: date,
+    propensity: float,
+    consent: bool,
+    tz: ZoneInfo,
+) -> list[dict[str, Any]]:
+    """Touches before purchases (visits, email clicks), a monthly newsletter for consenting
+    customers while they are around, and the odd review, ticket or loyalty sign-up."""
+    rows: list[dict[str, Any]] = []
+
+    def add(day: date, kind: str, channel: str) -> None:
+        if acquired - timedelta(days=30) <= day <= end:
+            rows.append({"externalId": "", "customerExternalId": customer, "type": kind,
+                         "channel": channel, "occurredAt": _at(rng, day, tz)})  # fmt: skip
+
+    for day in purchase_days:
+        if rng.random() < propensity:
+            add(day - timedelta(days=int(rng.integers(0, 8))), "WEBSITE_VISIT", "web")
+        if rng.random() < propensity * 0.6:
+            touch = day - timedelta(days=int(rng.integers(1, 11)))
+            add(touch, "EMAIL_OPENED", "email")
+            add(touch, "EMAIL_CLICKED", "email")
+        if rng.random() < 0.05:
+            add(day + timedelta(days=int(rng.integers(2, 15))), "REVIEW", "web")
+        if rng.random() < 0.03:
+            add(day + timedelta(days=int(rng.integers(1, 20))), "SUPPORT_TICKET", "phone")
+    if len(purchase_days) >= 2 and rng.random() < 0.1:
+        add(purchase_days[1], "LOYALTY_SIGNUP", "in_store")
+    if consent and purchase_days:
+        until = min(end, purchase_days[-1] + timedelta(days=120))
+        day = acquired + timedelta(days=int(rng.integers(1, 30)))
+        while day <= until:
+            add(day, "EMAIL_SENT", "email")
+            if rng.random() < propensity:
+                add(day + timedelta(days=int(rng.integers(0, 3))), "EMAIL_OPENED", "email")
+            day += timedelta(days=30)
+    return rows
+
+
+def _at(rng: np.random.Generator, day: date, tz: ZoneInfo) -> datetime:
+    local = datetime(day.year, day.month, day.day, tzinfo=tz) + timedelta(
+        minutes=int(rng.integers(8 * 60, 22 * 60))
+    )
+    return local.astimezone(ZoneInfo("UTC"))
 
 
 def _order(

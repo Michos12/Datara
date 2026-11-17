@@ -280,7 +280,7 @@ A new user can sign up, load demo data or import a CSV of customers and orders, 
 | OPEN-13           | **PaaS (Render, Railway or Fly.io) running the Docker images, with managed PostgreSQL.** Provider chosen in M9.                                                                                                                                                               | Decided          |
 | OPEN-10           | No pricing or plan limits (follows from OPEN-15).                                                                                                                                                                                                                             | Decided          |
 | OPEN-8, 9, 11, 12 | Proposed defaults below are adopted: GDPR-style design, SMTP abstraction with Mailpit locally, 24-month snapshot / 12-month audit retention, email/password auth only.                                                                                                        | Adopted defaults |
-| OPEN-4, 5         | Journey and engagement scope stays open; proposed defaults apply unless revisited before M6.                                                                                                                                                                                  | Open until M6    |
+| OPEN-4, 5         | Proposed defaults adopted in M6: lifecycle funnel from purchases plus interactions where they exist; fixed interaction types with weights configurable per organization.                                                                                                      | Adopted defaults |
 
 ### 9.2 Original questions
 

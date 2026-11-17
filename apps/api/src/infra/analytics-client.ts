@@ -34,9 +34,17 @@ export class AnalyticsClient {
     return this.call('POST', '/internal/query/overview', { organizationId, ...params });
   }
 
-  /** Retention, churn, churned-customer and cohort queries (`/internal/query/<kind>`). */
+  /** Behavior and customer value queries (`/internal/query/<kind>`). */
   behavior(
-    kind: 'retention' | 'churn' | 'churn/customers' | 'cohorts',
+    kind:
+      | 'retention'
+      | 'churn'
+      | 'churn/customers'
+      | 'cohorts'
+      | 'frequency'
+      | 'clv'
+      | 'journey'
+      | 'engagement',
     organizationId: string,
     params: Record<string, unknown>,
   ): Promise<unknown> {

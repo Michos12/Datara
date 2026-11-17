@@ -38,6 +38,7 @@ interface CustomerRow {
   r_score: number | null;
   f_score: number | null;
   m_score: number | null;
+  engagement_score: number | null;
   lifecycle_status: 'PROSPECT' | 'ACTIVE' | 'AT_RISK' | 'CHURNED' | null;
   sort_value?: unknown;
 }
@@ -108,7 +109,7 @@ const SELECT_COLUMNS = sql`
   c.id, c.external_id, c.first_name, c.last_name, c.email::text AS email, c.phone, c.country,
   c.region, c.city, c.registered_at, c.tags, c.marketing_consent, c.created_at, c.updated_at,
   coalesce(s.order_count, 0) AS order_count, coalesce(s.total_net, 0)::bigint AS total_net,
-  s.first_at, s.last_at, m.segment_key, m.r_score, m.f_score, m.m_score,
+  s.first_at, s.last_at, m.segment_key, m.r_score, m.f_score, m.m_score, m.engagement_score,
   m.lifecycle_status::text AS lifecycle_status`;
 
 /** Joins the latest snapshot's metrics (no rows yet → nulls). */
@@ -157,6 +158,7 @@ export function toCustomer(row: CustomerRow, now: number): Customer {
           rScore: row.r_score,
           fScore: row.f_score,
           mScore: row.m_score,
+          engagementScore: row.engagement_score,
           lifecycleStatus: row.lifecycle_status,
         }
       : null,

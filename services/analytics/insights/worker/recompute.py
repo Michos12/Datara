@@ -24,6 +24,7 @@ from insights.definitions import DEFINITION_VERSIONS
 from insights.ids import uuid7
 from insights.logging import get_logger
 from insights.metrics.core import Ratio, customer_metrics, lifecycle_counts, period_kpis
+from insights.metrics.engagement import engagement_scores
 from insights.metrics.rfm import rfm
 from insights.periods import Period, add_months, buckets, today_in
 from insights.segments import load_active_segment_config
@@ -157,6 +158,9 @@ def recompute(job: Job, db: Database) -> None:
         else:
             for column in ("f_value", "m_value", "r_score", "f_score", "m_score", "segment_key"):
                 metrics[column] = None
+        scores = engagement_scores(data.interactions, today, data.engagement)
+        metrics = metrics.merge(scores[["customer_id", "score"]], on="customer_id", how="left")
+        metrics = metrics.rename(columns={"score": "engagement_score"})
         series = period_metric_rows(data, today)
         computed = time.perf_counter()
 
@@ -170,6 +174,7 @@ def recompute(job: Job, db: Database) -> None:
                 "segments": {
                     str(k): int(v) for k, v in metrics["segment_key"].value_counts().items()
                 },
+                "engaged_customers": int(metrics["engagement_score"].notna().sum()),
                 "seconds": {
                     "load": round(loaded - started, 3),
                     "compute": round(computed - loaded, 3),
@@ -201,9 +206,10 @@ def _write_customer_metrics(
         "INSERT INTO analytics_customer_metrics (run_id, customer_id, organization_id,"
         " order_count, total_net_cents, aov_cents, first_order_date, last_order_date,"
         " recency_days, tenure_days, frequency_per_month, median_gap_days, lifecycle_status,"
-        " historical_clv_cents, f_value, m_value_cents, r_score, f_score, m_score, segment_key)"
+        " historical_clv_cents, f_value, m_value_cents, r_score, f_score, m_score, segment_key,"
+        " engagement_score)"
         " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        ' %s::"LifecycleStatus", %s, %s, %s, %s, %s, %s, %s)'
+        ' %s::"LifecycleStatus", %s, %s, %s, %s, %s, %s, %s, %s)'
     )
     params = []
     for r in metrics.to_dict("records"):
@@ -217,7 +223,7 @@ def _write_customer_metrics(
              _rounded(r["median_gap"], 2),
              r["lifecycle_status"], int(r["historical_clv"]),
              _int(r["f_value"]), _int(r["m_value"]), _int(r["r_score"]), _int(r["f_score"]),
-             _int(r["m_score"]), _none(r["segment_key"]))
+             _int(r["m_score"]), _none(r["segment_key"]), _int(r["engagement_score"]))
         )  # fmt: skip
     with conn.cursor() as cur:
         for start in range(0, len(params), BATCH):

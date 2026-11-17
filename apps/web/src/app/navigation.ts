@@ -5,6 +5,7 @@ export interface NavItem {
     | 'overview'
     | 'segments'
     | 'analytics'
+    | 'value'
     | 'recommendations'
     | 'reports'
     | 'customers'
@@ -35,8 +36,14 @@ export const NAV_SECTIONS: { key: 'insights' | 'data' | 'workspace'; items: NavI
       {
         path: '/analytics',
         key: 'analytics',
-        milestone: 'M5–M6',
-        summary: 'Retention, churn, cohorts, purchase frequency, CLV, journey and engagement.',
+        milestone: 'M5',
+        summary: 'Retention, churn and acquisition cohorts.',
+      },
+      {
+        path: '/value',
+        key: 'value',
+        milestone: 'M6',
+        summary: 'Purchase frequency, lifetime value, customer journey and engagement.',
       },
       {
         path: '/recommendations',
