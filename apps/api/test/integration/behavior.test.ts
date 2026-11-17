@@ -24,6 +24,93 @@ function meta(metric: string, dataVersion = 0) {
 
 const rate = { rate: 0.5, low: 0.1, high: 0.9, lowSample: true };
 const grain = { grain: 'month', medianGapDays: 20 };
+const bucket = { bucket: '1', min: 1, max: 1, count: 2 };
+const counts = {
+  website_visit: 1,
+  email_sent: 0,
+  email_opened: 0,
+  email_clicked: 0,
+  support_ticket: 0,
+  review: 0,
+  loyalty_signup: 0,
+  campaign_response: 0,
+  other: 0,
+};
+
+/** Minimal valid customer value payloads (shapes from packages/contracts/src/value.ts). */
+const VALUE_DATA = {
+  frequency: {
+    customers: 2,
+    orderCounts: [bucket],
+    repeat: { customers: 2, repeated: 1, ...rate },
+    averagePurchases: 1.5,
+    gaps: { count: 1, p25: 10, median: 10, p75: 10, mean: 10, histogram: [bucket] },
+    timeToSecond: {
+      customers: 2,
+      repeated: 1,
+      censored: 1,
+      within: [{ days: 30, share: 0.5, observedCustomers: 2 }],
+      quantiles: { p25: 10, median: 10, p75: null },
+      repeaters: { p25: 10, median: 10, p75: 10 },
+      curve: [{ days: 0, share: 0 }],
+    },
+    byCohort: [{ cohort: '2026-01', size: 2, repeated: 1, within90: null, ...rate }],
+  },
+  clv: {
+    summary: {
+      customers: 2,
+      mean: 150,
+      median: 150,
+      p25: 100,
+      p75: 200,
+      p90: 200,
+      total: 300,
+      top10Share: 0.66,
+    },
+    distribution: [{ min: 0, max: null, count: 2 }],
+    byCohort: [
+      {
+        cohort: '2026-01',
+        size: 2,
+        lowSample: true,
+        toDate: 150,
+        withinDays: { '90': 100, '180': null, '365': null },
+      },
+    ],
+    bySegment: [],
+  },
+  journey: {
+    stages: [
+      { stage: 'registered', customers: 3 },
+      { stage: 'first', customers: 2, conversion: rate },
+    ],
+    timing: [
+      {
+        from: 'registered',
+        to: 'first',
+        customers: 3,
+        reached: 2,
+        censored: 1,
+        medianDays: 3,
+        observedMedianDays: 2,
+      },
+    ],
+    beforeFirstPurchase: { firstPurchasers: 2, withInteractions: 0, types: [] },
+  },
+  engagement: {
+    volume: {
+      total: 1,
+      customers: 1,
+      byType: [{ type: 'website_visit', count: 1 }],
+      byChannel: [{ channel: 'web', count: 1 }],
+      series: [{ period: '2026-01-01', counts }],
+    },
+    engagedRate: { alive: 2, engaged: 1, ...rate },
+    scores: { scored: 1, distribution: [{ min: 0, max: 10, count: 1 }], median: 100 },
+    correlation: { rho: null, customers: 2, lowSample: true },
+    config: { weights: { ...counts, email_clicked: 3 }, cap: 10, windowDays: 90 },
+  },
+};
 
 class FakeAnalytics {
   calls: { kind: string; params: Record<string, unknown> }[] = [];
@@ -113,6 +200,11 @@ class FakeAnalytics {
             },
           },
         };
+      case 'frequency':
+      case 'clv':
+      case 'journey':
+      case 'engagement':
+        return { meta: meta(kind, this.version), data: VALUE_DATA[kind] };
     }
     throw new Error(`unexpected ${kind}`);
   }
@@ -258,5 +350,41 @@ describe('GET /analytics/churn/customers', () => {
     const res = await outsider.get('/analytics/churn/customers?start=2025-12-01&end=2026-01-01');
     expect(res.status).toBe(200);
     expect(res.body.data.every((c: { email: string | null }) => c.email === null)).toBe(true);
+  });
+});
+
+describe('customer value analytics', () => {
+  it('serves frequency, CLV, journey and engagement through the cache', async () => {
+    const current = await ctx.owner.organization.findUniqueOrThrow({ where: { id: org } });
+    fake.version = Number(current.dataVersion);
+    for (const kind of ['frequency', 'clv', 'journey', 'engagement'] as const) {
+      const first = await api.get(`/analytics/${kind}?start=2026-01-01&end=2026-04-01`);
+      expect(first.status, kind).toBe(200);
+      expect(first.body.meta.cached).toBe(false);
+      const again = await api.get(`/analytics/${kind}?start=2026-01-01&end=2026-04-01`);
+      expect(again.body.meta.cached).toBe(true);
+      expect(fake.calls.filter((c) => c.kind === kind)).toHaveLength(1);
+    }
+    expect(fake.calls.find((c) => c.kind === 'frequency')!.params).toMatchObject({
+      start: '2026-01-01',
+      end: '2026-04-01',
+    });
+  });
+
+  it('pins CLV to the latest snapshot for the by-segment breakdown', async () => {
+    const run = await ctx.owner.analyticsRun.findFirstOrThrow({
+      where: { organizationId: org, status: 'SUCCEEDED' },
+    });
+    expect(fake.calls.find((c) => c.kind === 'clv')!.params.runId).toBe(run.id);
+    expect(fake.calls.find((c) => c.kind === 'journey')!.params.runId).toBeUndefined();
+  });
+
+  it('validates the range and needs a snapshot for segment filters', async () => {
+    expect((await api.get('/analytics/clv?start=2026-04-01&end=2026-01-01')).status).toBe(422);
+    expect((await api.get('/analytics/frequency?grain=month')).status).toBe(422);
+    const fresh = authed(ctx.app, (await signup(ctx.app)).accessToken);
+    expect((await fresh.get('/analytics/engagement?segment=champions')).status).toBe(409);
+    // Without a segment, CLV works before the first snapshot too.
+    expect((await fresh.get('/analytics/clv')).status).toBe(200);
   });
 });

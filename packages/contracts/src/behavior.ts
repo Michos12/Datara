@@ -10,16 +10,16 @@ const segmentParam = z
   .regex(/^[a-z][a-z0-9_]{1,39}$/)
   .optional();
 
-const rangeShape = {
+export const rangeShape = {
   start: z.iso.date().optional(),
   end: z.iso.date().optional(),
   /** Limit to customers in this segment as of the latest snapshot. */
   segment: segmentParam,
 };
 
-function withRange<T extends z.ZodType<{ start?: string | undefined; end?: string | undefined }>>(
-  schema: T,
-) {
+export function withRange<
+  T extends z.ZodType<{ start?: string | undefined; end?: string | undefined }>,
+>(schema: T) {
   return schema
     .refine((q) => (q.start === undefined) === (q.end === undefined), {
       message: 'Provide both start and end, or neither',
@@ -57,7 +57,7 @@ export const churnedCustomersQuerySchema = withRange(
 export type ChurnedCustomersQuery = z.infer<typeof churnedCustomersQuerySchema>;
 
 /** A rate with its 95% Wilson interval (docs/05-analytics-methodology.md §9). */
-const rateShape = {
+export const rateShape = {
   rate: z.number().nullable(),
   low: z.number().nullable(),
   high: z.number().nullable(),

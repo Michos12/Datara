@@ -1,5 +1,5 @@
 import type { Customer } from '@ci/contracts';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
@@ -28,7 +28,14 @@ function customer(overrides: Partial<Customer> = {}): Customer {
       lastOrderAt: '2026-10-01T15:00:00.000Z',
       daysSinceLastOrder: 45,
     },
-    segment: { key: 'loyal', rScore: 4, fScore: 3, mScore: 5, lifecycleStatus: 'ACTIVE' },
+    segment: {
+      key: 'loyal',
+      rScore: 4,
+      fScore: 3,
+      mScore: 5,
+      engagementScore: 62,
+      lifecycleStatus: 'ACTIVE',
+    },
     ...overrides,
   };
 }
@@ -106,12 +113,80 @@ describe('CustomerProfilePage', () => {
           page: { nextCursor: null, limit: 25 },
         },
       }),
+      [`GET /customers/${c.id}/interactions`]: () => ({
+        status: 200,
+        body: {
+          data: [
+            {
+              id: '0193a2b4-0000-7000-8000-00000000e001',
+              customerId: c.id,
+              externalId: null,
+              type: 'email_clicked',
+              channel: 'email',
+              occurredAt: '2026-10-02T15:00:00.000Z',
+              metadata: { campaign: 'October' },
+              createdAt: '2026-10-02T15:00:00.000Z',
+            },
+          ],
+          page: { nextCursor: null, limit: 20 },
+        },
+      }),
     });
     renderApp(`/customers/${c.id}`, owner);
     expect(await screen.findByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument();
     expect(screen.getByText('45 days ago')).toBeInTheDocument();
     expect(await screen.findByText('Partially refunded')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add order' })).toBeInTheDocument();
+    expect(screen.getByText('62 / 100')).toBeInTheDocument();
+    const timeline = await screen.findByRole('list', { name: 'Interactions' });
+    expect(within(timeline).getByText('Email clicked')).toBeInTheDocument();
+    expect(within(timeline).getByText(/campaign: October/)).toBeInTheDocument();
+  });
+
+  it('adds an interaction from the profile', async () => {
+    const c = customer();
+    const fetchMock = mockApi({
+      ...READY,
+      [`GET /customers/${c.id}`]: () => ({ status: 200, body: c }),
+      [`GET /customers/${c.id}/orders`]: () => ({
+        status: 200,
+        body: { data: [], page: { nextCursor: null, limit: 25 } },
+      }),
+      [`GET /customers/${c.id}/interactions`]: () => ({
+        status: 200,
+        body: { data: [], page: { nextCursor: null, limit: 20 } },
+      }),
+      'POST /interactions': (init) => ({
+        status: 201,
+        body: {
+          id: '0193a2b4-0000-7000-8000-00000000e002',
+          externalId: null,
+          metadata: {},
+          createdAt: '2026-11-16T00:00:00.000Z',
+          ...JSON.parse(String(init?.body)),
+          channel: 'web',
+        },
+      }),
+    });
+    renderApp(`/customers/${c.id}`, owner);
+    expect(await screen.findByText('No interactions yet.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Add interaction' }));
+    await userEvent.selectOptions(screen.getByLabelText('Type'), 'review');
+    await userEvent.type(screen.getByLabelText('Channel'), 'web');
+    await userEvent.click(screen.getByRole('button', { name: 'Save interaction' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([u, i]) => String(u).endsWith('/interactions') && i?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+    const [, init] = fetchMock.mock.calls.find(([, i]) => i?.method === 'POST')!;
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      customerId: c.id,
+      type: 'review',
+      channel: 'web',
+    });
   });
 
   it('shows a not-found state for unknown customers', async () => {

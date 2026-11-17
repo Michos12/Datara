@@ -1,9 +1,11 @@
 import {
   createCustomerRequestSchema,
   currencyMinorUnits,
+  interactionTypeSchema,
   orderStatusSchema,
   type ImportEntity,
   type ImportOptions,
+  type InteractionType,
   type OrderStatus,
 } from '@ci/contracts';
 
@@ -453,8 +455,76 @@ export function parseOrderRow(row: MappedRow, ctx: ParseContext): ParseResult<Pa
   };
 }
 
-export function parseRow(entity: ImportEntity, row: MappedRow, ctx: ParseContext) {
-  return entity === 'customers' ? parseCustomerRow(row, ctx) : parseOrderRow(row, ctx);
+export interface ParsedInteraction {
+  externalId: string;
+  customerExternalId: string;
+  type: InteractionType;
+  occurredAt: Date;
+  channel: string | null;
+}
+
+/** Accepts "email_opened", "Email opened", "EMAIL-OPENED"… */
+export function parseInteractionType(raw: string): InteractionType {
+  const key = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const parsed = interactionTypeSchema.safeParse(key);
+  if (!parsed.success) throw new CellError(`Unknown interaction type "${raw}"`);
+  return parsed.data;
+}
+
+export function parseInteractionRow(
+  row: MappedRow,
+  ctx: ParseContext,
+): ParseResult<ParsedInteraction> {
+  const errors: RowError[] = [];
+  const externalId = cell(row, 'externalId');
+  if (!externalId) errors.push({ field: 'externalId', message: 'Interaction ID is required' });
+  else if (externalId.length > 120) errors.push({ field: 'externalId', message: 'Too long' });
+  const customer = cell(row, 'customerExternalId');
+  if (!customer) errors.push({ field: 'customerExternalId', message: 'Customer ID is required' });
+
+  const rawType = cell(row, 'type');
+  const type = rawType
+    ? collect(errors, 'type', () => parseInteractionType(rawType))
+    : (errors.push({ field: 'type', message: 'Type is required' }), undefined);
+
+  const rawDate = cell(row, 'occurredAt');
+  let occurredAt: Date | undefined;
+  if (!rawDate) errors.push({ field: 'occurredAt', message: 'Date is required' });
+  else {
+    occurredAt = collect(errors, 'occurredAt', () =>
+      parseDateTime(rawDate, { dateFormat: ctx.options.dateFormat, timeZone: ctx.timeZone }),
+    );
+    if (occurredAt && occurredAt.getTime() > ctx.latestOrderAt) {
+      errors.push({ field: 'occurredAt', message: 'Date is in the future' });
+    }
+  }
+  const channel = cell(row, 'channel');
+  if (channel && channel.length > 40) errors.push({ field: 'channel', message: 'Too long' });
+
+  if (errors.length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    value: {
+      externalId: externalId!,
+      customerExternalId: customer!,
+      type: type!,
+      occurredAt: occurredAt!,
+      channel: channel || null,
+    },
+  };
+}
+
+export function parseRow(
+  entity: ImportEntity,
+  row: MappedRow,
+  ctx: ParseContext,
+): ParseResult<ParsedCustomer | ParsedOrder | ParsedInteraction> {
+  if (entity === 'customers') return parseCustomerRow(row, ctx);
+  if (entity === 'orders') return parseOrderRow(row, ctx);
+  return parseInteractionRow(row, ctx);
 }
 
 /** Detects the delimiter from the header line: whichever of , ; tab | appears most. */

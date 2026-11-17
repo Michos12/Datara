@@ -146,6 +146,38 @@ class AnalyticsQueries(Protocol):
         run_id: UUID | None = None,
     ) -> dict[str, Any]: ...
 
+    def frequency(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
+    def clv(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
+    def journey(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
+    def engagement(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]: ...
+
 
 def create_app(
     *,
@@ -275,6 +307,21 @@ def create_app(
                 query.run_id,
             )
         )
+
+    def value_endpoint(kind: Literal["frequency", "clv", "journey", "engagement"]) -> None:
+        def handler(query: BehaviorQuery) -> dict[str, Any]:
+            method = getattr(service(), kind)
+            return answer(lambda: method(query.organization_id, query.period, query.segment,
+                                         query.run_id))  # fmt: skip
+
+        app.post(
+            f"/internal/query/{kind}",
+            dependencies=[Depends(require_service_token)],
+            name=f"query_{kind}",
+        )(handler)
+
+    for kind in ("frequency", "clv", "journey", "engagement"):
+        value_endpoint(kind)
 
     @app.post("/internal/segments/preview", dependencies=[Depends(require_service_token)])
     def segments_preview(query: SegmentPreviewQuery) -> dict[str, Any]:

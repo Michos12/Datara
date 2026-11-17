@@ -32,7 +32,7 @@ export function readStoredMapping(value: unknown): StoredMapping {
 
 export interface ImportRow {
   id: string;
-  entity: 'CUSTOMERS' | 'ORDERS';
+  entity: 'CUSTOMERS' | 'ORDERS' | 'INTERACTIONS';
   status: 'UPLOADED' | 'VALIDATING' | 'VALIDATED' | 'IMPORTING' | 'COMPLETED' | 'FAILED';
   originalName: string;
   sizeBytes: number;

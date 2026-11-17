@@ -88,6 +88,8 @@ export const customerSchema = z.object({
       rScore: z.number().int().nullable(),
       fScore: z.number().int().nullable(),
       mScore: z.number().int().nullable(),
+      /** 0–100 from the last 90 days of interactions; null = no recent interactions (M6). */
+      engagementScore: z.number().int().nullable().default(null),
       lifecycleStatus: z.enum(['PROSPECT', 'ACTIVE', 'AT_RISK', 'CHURNED']),
     })
     .nullable(),

@@ -32,6 +32,8 @@ export const metricUnitSchema = z.enum([
   'ratio',
   'orders_per_customer',
   'status',
+  'days',
+  'score',
 ]);
 
 export const analyticsWarningSchema = z.object({ code: z.string(), message: z.string() });

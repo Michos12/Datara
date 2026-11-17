@@ -25,12 +25,20 @@ VALUES (%s, %s, %s, %s, %s, %s::"OrderStatus", %s, %s, %s, %s, %s, now())
 """
 
 
+INSERT_INTERACTION = """
+INSERT INTO interactions (id, organization_id, external_id, customer_id, type, channel, occurred_at)
+VALUES (%s, %s, %s, %s, %s::"InteractionType", %s, %s)
+"""
+
+
 class OrganizationNotEmptyError(Exception):
     pass
 
 
 def load(conn: psycopg.Connection, organization_id: UUID, data: GeneratedData) -> dict[str, int]:
-    """Inserts customers and orders. `conn` must be inside `Database.tenant_transaction`."""
+    """Inserts customers, orders and interactions.
+
+    `conn` must be inside `Database.tenant_transaction`."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT (SELECT count(*) FROM customers) + (SELECT count(*) FROM orders)",
@@ -66,8 +74,23 @@ def load(conn: psycopg.Connection, organization_id: UUID, data: GeneratedData) -
         for start in range(0, len(order_params), BATCH):
             cur.executemany(INSERT_ORDER, order_params[start : start + BATCH])
 
+        interaction_params: list[tuple[Any, ...]] = []
+        for i in data.interactions.to_dict("records"):
+            occurred = i["occurredAt"]
+            interaction_params.append(
+                (uuid7(), organization_id, i["externalId"], ids[str(i["customerExternalId"])],
+                 i["type"], i["channel"],
+                 occurred.to_pydatetime() if hasattr(occurred, "to_pydatetime") else occurred)
+            )  # fmt: skip
+        for start in range(0, len(interaction_params), BATCH):
+            cur.executemany(INSERT_INTERACTION, interaction_params[start : start + BATCH])
+
         cur.execute(
             "UPDATE organizations SET data_version = data_version + 1 WHERE id = %s",
             (organization_id,),
         )
-    return {"customers": len(customer_params), "orders": len(order_params)}
+    return {
+        "customers": len(customer_params),
+        "orders": len(order_params),
+        "interactions": len(interaction_params),
+    }

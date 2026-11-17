@@ -164,7 +164,7 @@ export function authed(app: Express, accessToken: string) {
       request(app).put(`${API}${path}`).set('Authorization', `Bearer ${accessToken}`).send(body),
     delete: (path: string) =>
       request(app).delete(`${API}${path}`).set('Authorization', `Bearer ${accessToken}`),
-    upload: (entity: 'customers' | 'orders', csv: string, filename = 'data.csv') =>
+    upload: (entity: 'customers' | 'orders' | 'interactions', csv: string, filename = 'data.csv') =>
       request(app)
         .post(`${API}/imports?entity=${entity}&filename=${encodeURIComponent(filename)}`)
         .set('Authorization', `Bearer ${accessToken}`)

@@ -15,6 +15,11 @@ from uuid import UUID
 import pandas as pd
 import psycopg
 
+from insights.metrics.engagement import (
+    DEFAULT_ENGAGEMENT,
+    EMPTY_INTERACTIONS,
+    EngagementConfig,
+)
 from insights.settings import AnalyticsSettings, resolve_settings
 
 PURCHASES_SQL = """
@@ -38,6 +43,19 @@ SELECT id::text AS customer_id,
        registered_at
 FROM customers
 WHERE organization_id = %(org)s AND deleted_at IS NULL
+"""
+
+# One row per (customer, local day, type, channel). Interactions of deleted customers are left out.
+INTERACTIONS_SQL = """
+SELECT i.customer_id::text AS customer_id,
+       (i.occurred_at AT TIME ZONE %(tz)s)::date AS day,
+       i.type::text AS type,
+       i.channel,
+       count(*)::int AS n
+FROM interactions i
+JOIN customers c ON c.id = i.customer_id AND c.deleted_at IS NULL
+WHERE i.organization_id = %(org)s AND i.occurred_at <= now() + interval '1 day'
+GROUP BY 1, 2, 3, 4
 """
 
 QUALITY_SQL = """
@@ -91,6 +109,9 @@ class OrgData:
     """customer_id (str | None), day (datetime64), orders (int), net (int)"""
     customers: pd.DataFrame
     """customer_id, since (datetime64): the customer's start date (see `customer_since`)"""
+    interactions: pd.DataFrame = field(default_factory=EMPTY_INTERACTIONS.copy)
+    """customer_id, day (datetime64), type, channel (str | None), n (int)"""
+    engagement: EngagementConfig = DEFAULT_ENGAGEMENT
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -113,11 +134,17 @@ def load_org(conn: psycopg.Connection, organization_id: UUID) -> OrgData:
         customers = pd.DataFrame(
             cur.fetchall(), columns=["customer_id", "created_day", "registered_at"]
         )
+        cur.execute(INTERACTIONS_SQL, params)
+        interactions = pd.DataFrame(
+            cur.fetchall(), columns=["customer_id", "day", "type", "channel", "n"]
+        )
 
     purchases = purchases.astype({"orders": "int64", "net": "int64"})
     purchases["day"] = pd.to_datetime(purchases["day"])
     purchases = purchases.sort_values(["day"], kind="stable").reset_index(drop=True)
     customers = customer_since(customers, purchases)
+    interactions = interactions.astype({"n": "int64"})
+    interactions["day"] = pd.to_datetime(interactions["day"])
 
     return OrgData(
         organization_id=organization_id,
@@ -127,6 +154,10 @@ def load_org(conn: psycopg.Connection, organization_id: UUID) -> OrgData:
         settings=resolve_settings(str(industry), raw_settings),
         purchases=purchases,
         customers=customers,
+        interactions=interactions,
+        engagement=EngagementConfig.from_settings(
+            raw_settings.get("engagement") if isinstance(raw_settings, dict) else None
+        ),
     )
 
 

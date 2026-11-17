@@ -118,6 +118,7 @@ erDiagram
         uuid id PK
         uuid organization_id FK
         uuid customer_id FK
+        string external_id
         enum type
         string channel
         timestamptz occurred_at

@@ -24,14 +24,21 @@ from insights.metrics.behavior_queries import (
 )
 from insights.metrics.overview import Compare, default_period, overview
 from insights.metrics.rfm import SegmentConfig, rfm, rfm_matrix, segment_counts
+from insights.metrics.value_queries import (
+    clv_query,
+    engagement_query,
+    frequency_query,
+    journey_query,
+)
 from insights.periods import Grain, Period, today_in
-from insights.segments import latest_run_id, segment_members
+from insights.segments import latest_run_id, segment_assignments, segment_members
 
 
 class OrgLoader(Protocol):
     def version(self, organization_id: UUID) -> int: ...
     def load(self, organization_id: UUID) -> OrgData: ...
     def members(self, organization_id: UUID, run_id: UUID | None, segment: str) -> set[str]: ...
+    def assignments(self, organization_id: UUID, run_id: UUID | None) -> dict[str, str | None]: ...
 
 
 class DatabaseLoader:
@@ -58,12 +65,19 @@ class DatabaseLoader:
                 raise LookupError("No analytics snapshot yet: segments are not available")
             return segment_members(conn, organization_id, run, segment)
 
+    def assignments(self, organization_id: UUID, run_id: UUID | None) -> dict[str, str | None]:
+        """Customer → segment of a run (the latest when none is given; empty before any run)."""
+        with self.db.tenant_transaction(organization_id) as conn:
+            run = run_id or latest_run_id(conn, organization_id)
+            return {} if run is None else segment_assignments(conn, organization_id, run)
+
 
 def restrict_to(data: OrgData, customer_ids: set[str]) -> OrgData:
     """The organization's data limited to some customers (guest orders are dropped)."""
     purchases = data.purchases[data.purchases["customer_id"].isin(customer_ids)]
     customers = data.customers[data.customers["customer_id"].isin(customer_ids)]
-    return replace(data, purchases=purchases, customers=customers)
+    interactions = data.interactions[data.interactions["customer_id"].isin(customer_ids)]
+    return replace(data, purchases=purchases, customers=customers, interactions=interactions)
 
 
 def with_filters(
@@ -170,6 +184,47 @@ class AnalyticsService:
     ) -> dict[str, Any]:
         data = self.scoped(organization_id, segment, run_id)
         return with_filters(cohorts_query(data, period, max_periods), segment, run_id)
+
+    def frequency(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        return with_filters(frequency_query(data, period), segment, run_id)
+
+    def clv(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        assignments = self.loader.assignments(organization_id, run_id)
+        return with_filters(clv_query(data, assignments, period), segment, run_id)
+
+    def journey(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        return with_filters(journey_query(data, period), segment, run_id)
+
+    def engagement(
+        self,
+        organization_id: UUID,
+        period: Period | None,
+        segment: str | None = None,
+        run_id: UUID | None = None,
+    ) -> dict[str, Any]:
+        data = self.scoped(organization_id, segment, run_id)
+        return with_filters(engagement_query(data, period), segment, run_id)
 
     def segment_preview(self, organization_id: UUID, config: dict[str, Any]) -> dict[str, Any]:
         """Segment counts a configuration would produce today, without saving anything."""

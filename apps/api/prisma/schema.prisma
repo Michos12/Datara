@@ -50,6 +50,7 @@ model Organization {
   products       Product[]
   imports        Import[]
   segmentConfigs SegmentConfig[]
+  interactions   Interaction[]
 
   @@map("organizations")
 }
@@ -130,8 +131,9 @@ model Customer {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   orders       Order[]
+  interactions Interaction[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId, email])
@@ -207,9 +209,45 @@ model Product {
   @@map("products")
 }
 
+// ───────────── Interactions (M6) ─────────────
+
+enum InteractionType {
+  WEBSITE_VISIT
+  EMAIL_SENT
+  EMAIL_OPENED
+  EMAIL_CLICKED
+  SUPPORT_TICKET
+  REVIEW
+  LOYALTY_SIGNUP
+  CAMPAIGN_RESPONSE
+  OTHER
+}
+
+/// A non-purchase event linked to a customer (CUS-06). Feeds engagement (methodology §8.3).
+model Interaction {
+  id             String          @id @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  customerId     String          @map("customer_id") @db.Uuid
+  /// ID in the tenant's source system; makes imports and batch writes idempotent.
+  externalId     String?         @map("external_id")
+  type           InteractionType
+  channel        String?
+  occurredAt     DateTime        @map("occurred_at") @db.Timestamptz(6)
+  metadata       Json            @default("{}")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, customerId, occurredAt])
+  @@index([organizationId, type, occurredAt])
+  @@map("interactions")
+}
+
 enum ImportEntity {
   CUSTOMERS
   ORDERS
+  INTERACTIONS
 }
 
 enum ImportStatus {
@@ -321,6 +359,8 @@ model AnalyticsCustomerMetrics {
   mScore             Int?            @map("m_score") @db.SmallInt
   /// Segment from the run's segment configuration; null = no purchases (not scored).
   segmentKey         String?         @map("segment_key")
+  /// Engagement score 0–100 from the last 90 days of interactions; null = none (M6).
+  engagementScore    Int?            @map("engagement_score") @db.SmallInt
 
   @@id([runId, customerId])
   @@index([organizationId, runId, segmentKey])

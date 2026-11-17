@@ -61,3 +61,15 @@ def segment_members(
         )
         params = (organization_id, run_id, segment_key)
     return {row[0] for row in conn.execute(sql, params).fetchall()}
+
+
+def segment_assignments(
+    conn: psycopg.Connection, organization_id: UUID, run_id: UUID
+) -> dict[str, str | None]:
+    """Every customer's segment key in a run (None = not scored)."""
+    rows = conn.execute(
+        "SELECT customer_id::text, segment_key FROM analytics_customer_metrics"
+        " WHERE organization_id = %s AND run_id = %s",
+        (organization_id, run_id),
+    ).fetchall()
+    return {row[0]: row[1] for row in rows}

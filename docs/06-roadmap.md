@@ -246,6 +246,21 @@ gantt
 
 ## M6 — Purchase frequency, CLV, journey and engagement (≈3 weeks)
 
+> **Status (2026-11-16): implemented.** Notes on what changed from the plan:
+>
+> - One Customer value page (`/value`) with Frequency, Lifetime value, Journey and Engagement tabs
+>   instead of four pages; acquisition-window and segment filters; CSV for the main tables.
+> - Frequency counts purchase occasions (same-day orders merged) everywhere, so the histogram,
+>   repeat rate and time to second purchase agree. Kaplan–Meier is a small in-house estimator,
+>   tested against `lifelines` reference output rather than adding `lifelines` (and SciPy) as a
+>   dependency.
+> - CLV by cohort uses 90/180/365-day horizons from each customer's first purchase, null until
+>   the whole cohort has had that long; everything is `kind: "measured"`.
+> - Engagement weights live in organization settings (editable in Settings) rather than a separate
+>   versioned table; responses echo the weights used. Scores are stored in the nightly snapshot.
+> - Interactions gained an optional `external_id` (unique per organization) so batches and CSV
+>   imports are idempotent. Demo data now includes interactions that precede purchases.
+
 **Functional requirements:** ANA-04, ANA-07 (cohort CLV views), ANA-05, ANA-06, CUS-06 — scope of ANA-05/06 depends on [OPEN-4]/[OPEN-5].
 
 **Technical implementation**

@@ -223,6 +223,8 @@ Per customer: raw R/F/M, scores, segment key, config version. Per segment: count
 
 ### 8.1 Purchase frequency
 
+> Implemented in M6 (`insights/metrics/value.py`). Every figure is for the customers whose first purchase falls in the selected acquisition window, followed up to today. All counts on the Frequency page use **purchase occasions** (same-day orders merged), including the histogram and the repeat rate, so they always agree with the time to second purchase. Kaplan–Meier is a small NumPy/pandas product-limit estimator, tested against `lifelines` 0.30 reference output; ties count events before censorings, as in `lifelines`. "Within t days" figures report alongside how many customers were acquired at least t days ago. Repeat rate by cohort adds `within90` (second purchase within 90 days), shown only once the whole cohort is 90 days old.
+
 - **Orders-per-customer distribution** (lifetime, as of `as_of`): histogram with buckets 1, 2, 3, 4, 5, 6–10, 11+.
 - **Repeat purchase rate** = customers with ≥2 orders / customers with ≥1 order (lifetime, as of `as_of`; also by acquisition cohort).
 - **Inter-purchase time**: gaps in days between consecutive _purchase occasions_ (orders by the same customer on the same business date are merged into one occasion). Reported: median, P25, P75, and histogram. The median gap per customer is stored (`median_gap_days`) for churn-risk rules.
@@ -230,11 +232,15 @@ Per customer: raw R/F/M, scores, segment key, config version. Per segment: count
 
 ### 8.2 Customer journey (P2, scope per [OPEN-4])
 
+> Implemented in M6 with the proposed default. Population: customers whose customer-since date (§4, earliest of registration and first purchase) falls in the window. Stages count purchase occasions to date; "Active" is a share of first-time buyers (last purchase within the active window today), not a further step. Stage timing is the Kaplan–Meier median (null while fewer than half have reached the next stage) with the observed median among those who did. Interaction types before the first purchase are counted per customer, in the 30 days up to and including the first purchase day.
+
 Lifecycle funnel from purchase data, per acquisition cohort window:
 `Registered → 1st purchase → 2nd purchase → 3rd+ purchase → Active at as_of`
 with stage conversion rates and median days between stages (Kaplan–Meier for stage timing). If interactions exist, show the most common interaction types in the 30 days before the first purchase (descriptive only, no attribution claims).
 
 ### 8.3 Engagement (P2, scope per [OPEN-5])
+
+> Implemented in M6. Weights live in organization settings (`settings.engagement = { weights, cap }`, lower-case type keys, 0–10 each; cap 1–100, default 10 per type per 90 days); every response echoes the weights used, and the formula version is `engagement_score` v1. Defaults also set EMAIL_SENT 0 and OTHER 1. The engaged-customer rate's numerator is alive customers with an interaction (of any weight), so it is a proper share. Customers with raw = 0 have no score (null in the snapshot), not 0. The nightly snapshot stores each customer's score (`analytics_customer_metrics.engagement_score`), shown on the profile. The correlation check: alive customers 90 days before the reference date, their score then vs. purchase days since; ρ is null below 30 customers.
 
 - **Engaged-customer rate** = customers with ≥1 interaction in the last 90 days / customers alive at `as_of`.
 - **Engagement score** (kind: `score`, 0–100):

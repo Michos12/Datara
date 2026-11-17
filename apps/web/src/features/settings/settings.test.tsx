@@ -1,4 +1,4 @@
-import { INDUSTRY_PRESETS } from '@ci/contracts';
+import { DEFAULT_ENGAGEMENT_WEIGHTS, INDUSTRY_PRESETS } from '@ci/contracts';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -50,5 +50,28 @@ describe('SettingsPage', () => {
 
     expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
     expect(sent).toMatchObject({ industry: 'retail', settings: INDUSTRY_PRESETS.retail });
+  });
+
+  it('saves engagement score weights with the analytics settings', async () => {
+    const session = makeSession('OWNER');
+    let sent: { settings?: { engagement?: unknown } } = {};
+    mockApi({
+      ...READY,
+      'PATCH /organization': (init) => {
+        sent = JSON.parse(String(init?.body));
+        return { status: 200, body: { ...session.organization, ...sent } };
+      },
+    });
+    renderApp('/settings', { status: 'authenticated', session });
+    const clicked = screen.getByLabelText('Email clicked');
+    expect(clicked).toHaveValue(3);
+    await userEvent.clear(clicked);
+    await userEvent.type(clicked, '6');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText('Settings saved.')).toBeInTheDocument();
+    expect(sent.settings?.engagement).toEqual({
+      weights: { ...DEFAULT_ENGAGEMENT_WEIGHTS, email_clicked: 6 },
+      cap: 10,
+    });
   });
 });

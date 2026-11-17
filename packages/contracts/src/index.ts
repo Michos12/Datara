@@ -7,3 +7,5 @@ export * from './imports.js';
 export * from './analytics.js';
 export * from './segments.js';
 export * from './behavior.js';
+export * from './interactions.js';
+export * from './value.js';

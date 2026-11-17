@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 MetricKind = Literal["measured", "estimated", "score"]
-MetricUnit = Literal["count", "money", "ratio", "orders_per_customer", "status"]
+MetricUnit = Literal["count", "money", "ratio", "orders_per_customer", "status", "days", "score"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +149,59 @@ DEFINITIONS: tuple[MetricDefinition, ...] = (
         "Running sum over k of revenue per original cohort customer.",
         "Months since acquisition, complete months only.",
         "Total spend per acquired customer so far: a measured, cohort-level CLV.",
+    ),
+    MetricDefinition(
+        "repeat_purchase_rate", "Repeat purchase rate", 1, "measured", "ratio",
+        "Customers acquired in the period (first countable order in it) with at least two "
+        "purchase days to date ÷ customers acquired in the period. Orders on the same local day "
+        "are one purchase occasion.",
+        "Acquisition period; purchases followed up to today.",
+        "The share of new customers who came back at least once.",
+    ),
+    MetricDefinition(
+        "inter_purchase_time", "Time between purchases", 1, "measured", "days",
+        "Days between consecutive purchase occasions of the same customer (same-day orders "
+        "merged). Median, P25 and P75 over all gaps of customers acquired in the period.",
+        "Acquisition period; purchases followed up to today.",
+        "How long customers usually wait before buying again.",
+    ),
+    MetricDefinition(
+        "time_to_second_purchase", "Time to second purchase", 1, "measured", "ratio",
+        "Kaplan–Meier estimate of the share of customers with a second purchase occasion within "
+        "t days of their first. Customers without one are right-censored at today.",
+        "Acquisition period; censoring disclosed.",
+        "How soon new customers come back, counting those who may still return.",
+    ),
+    MetricDefinition(
+        "cohort_clv", "Cohort CLV", 1, "measured", "money",
+        "Net revenue within 90, 180 or 365 days of each customer's first purchase ÷ cohort "
+        "size. Shown only once every cohort customer has had the full horizon.",
+        "Acquisition month; horizon measured from each customer's first purchase.",
+        "What a customer acquired in a month spends in their first months, comparable across "
+        "cohorts.",
+    ),
+    MetricDefinition(
+        "journey_funnel", "Lifecycle funnel", 1, "measured", "ratio",
+        "Customers who became customers in the period → with a 1st, 2nd and 3rd purchase "
+        "occasion to date, and first-time buyers still active today. Stage timing: Kaplan–Meier "
+        "median days, censored at today.",
+        "Customer-since date in the period; followed up to today.",
+        "How far customers get, and how long each step takes.",
+    ),
+    MetricDefinition(
+        "engaged_customer_rate", "Engaged-customer rate", 1, "measured", "ratio",
+        "Customers alive at the reference date (last purchase within settings.churnDays) with at "
+        "least one interaction in the 90 days up to it ÷ alive customers.",
+        AS_OF,
+        "Of your current customers, the share who interacted with you recently.",
+    ),
+    MetricDefinition(
+        "engagement_score", "Engagement score", 1, "score", "score",
+        "raw = Σ over types of weight × min(interactions in the last 90 days, cap); score = "
+        "percentile rank of log(1 + raw) among customers with raw > 0, × 100. Weights and cap "
+        "are organization settings.",
+        AS_OF,
+        "A 0–100 score relative to your other customers. Not a prediction.",
     ),
 )  # fmt: skip
 

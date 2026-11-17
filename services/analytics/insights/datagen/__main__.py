@@ -3,8 +3,9 @@
     python -m insights.datagen --customers 2000 --industry retail --currency USD \
         --timezone America/Bogota --seed 42 --out ./demo-data
 
-Writes customers.csv and orders.csv (headers match the API import templates, so the files can
-be uploaded through the import wizard) plus ground_truth.json describing the planted patterns.
+Writes customers.csv, orders.csv and interactions.csv (headers match the API import templates,
+so the files can be uploaded through the import wizard) plus ground_truth.json describing the
+planted patterns.
 """
 
 import argparse
@@ -53,8 +54,17 @@ def main() -> None:
         orders[dst] = orders.pop(src).map(lambda v: f"{v / 10**digits:.{digits}f}")
     orders.to_csv(args.out / "orders.csv", index=False, encoding="utf-8")
 
+    interactions = data.interactions.copy()
+    interactions["occurredAt"] = interactions["occurredAt"].map(
+        lambda t: t.isoformat().replace("+00:00", "Z")
+    )
+    interactions.to_csv(args.out / "interactions.csv", index=False, encoding="utf-8")
+
     (args.out / "ground_truth.json").write_text(json.dumps(data.ground_truth, indent=2), "utf-8")
-    print(f"Wrote {len(customers)} customers and {len(orders)} orders to {args.out.resolve()}")
+    print(
+        f"Wrote {len(customers)} customers, {len(orders)} orders and {len(interactions)} "
+        f"interactions to {args.out.resolve()}"
+    )
 
 
 if __name__ == "__main__":
