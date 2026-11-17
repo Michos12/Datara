@@ -5,7 +5,8 @@ process), so the data has realistic shapes: most customers buy once or twice, a 
 spend is right-skewed, and customers silently stop buying. Two patterns are planted so that
 analytics can later be checked against a known answer:
 
-* a VIP group (about 5%) that buys more often and spends more per order;
+* a VIP group (about 5%) that buys more often and spends more per order, a quarter of whom
+  ("quiet VIPs") stop buying 60–150 days before the end: high-value customers at risk;
 * a "churn wave" acquisition cohort whose customers drop out much faster than everyone else;
 * interactions that run ahead of purchases: engaged customers visit and click in the days before
   they buy, so the engagement score should correlate with future purchases.
@@ -100,6 +101,7 @@ class GeneratorConfig:
     guest_order_share: float = 0.05
     churn_wave_months_ago: int = 8
     interactions: bool = True
+    quiet_vip_share: float = 0.25
 
 
 def generate(config: GeneratorConfig) -> GeneratedData:
@@ -189,6 +191,30 @@ def generate(config: GeneratorConfig) -> GeneratedData:
                 bool(customer_rows[-1]["marketingConsent"]), tz,
             )  # fmt: skip
 
+    # Quiet VIPs: steady buyers until 60–150 days before the end, then nothing. Drawn from their
+    # own random stream, so every other customer's orders stay the same.
+    qrng = np.random.default_rng([config.seed, 2])
+    quiet: list[str] = []
+    for i in (int(v) for v in np.flatnonzero(is_vip)):
+        if is_prospect[i] or qrng.random() >= config.quiet_vip_share:
+            continue
+        cutoff = end - timedelta(days=int(qrng.integers(60, 151)))
+        days: list[date] = []
+        day = acquired[i]
+        while day < cutoff:
+            days.append(day)
+            day += timedelta(days=max(1, round(qrng.exponential(mean_gap[i]))))
+        if len(days) < 3:
+            continue
+        external_id = f"C-{i + 1:06d}"
+        order_rows = [o for o in order_rows if o["customerExternalId"] != external_id]
+        order_rows += [
+            _order(qrng, d, external_id, aov[i], tz, config.currency, channels, channel_p,
+                   ["completed"], np.array([1.0]))
+            for d in days
+        ]  # fmt: skip
+        quiet.append(external_id)
+
     # Guest checkouts: revenue without a known customer.
     guests = int(len(order_rows) * config.guest_order_share)
     for _ in range(guests):
@@ -220,6 +246,7 @@ def generate(config: GeneratorConfig) -> GeneratedData:
         "orders": len(orders),
         "guest_orders": guests,
         "vip_customers": [f"C-{i + 1:06d}" for i in np.flatnonzero(is_vip)],
+        "quiet_vip_customers": quiet,
         "churn_wave_cohort": churn_wave_start.strftime("%Y-%m"),
         "churn_wave_customers": int(in_wave.sum()),
         "interactions": len(interactions),

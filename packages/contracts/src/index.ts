@@ -9,3 +9,4 @@ export * from './segments.js';
 export * from './behavior.js';
 export * from './interactions.js';
 export * from './value.js';
+export * from './recommendations.js';

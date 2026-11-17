@@ -264,6 +264,14 @@ with stage conversion rates and median days between stages (Kaplan–Meier for s
 
 ## 10. Recommendation rules (initial set, version 1)
 
+> Implemented in M7 (`insights/recommendations/`). Rules run at the end of every snapshot, in the same transaction that writes it; a rule that raises is skipped and reported in the run's `stats.rule_errors`, so one faulty rule never blocks the others or the snapshot. Notes on the details:
+>
+> - Rules that name segments use the default keys (`champions`, `cant_lose_them`, `loyal`, `potential_loyalists`, `hibernating`, `lost`); a tenant that renames those keys does not trigger them.
+> - Trailing-12-month revenue (the impact denominator) is all net revenue in the 365 days up to `as_of`, guest orders included. Per-customer values are stored with the affected list, which is ordered by them.
+> - `second_purchase_window` uses purchase occasions (as on the Frequency page) and the P25–P75 of days to the second purchase among returning customers; it needs 30 of them.
+> - `retention_decline` compares the last complete month (quarter when the median gap exceeds 60 days, §4.1) with the pooled previous three, using a one-sided test (H1: retention is lower). Its scope is the grain, so a switch from monthly to quarterly is a different recommendation.
+> - Lifecycle extras: `DONE` reopens after 30 days (or when revenue at stake grows ≥ 50% since it was marked done); an expired recommendation reopens as soon as its condition holds again; expired ones cannot be changed by users.
+
 Each rule outputs: opportunity, structured metrics, explanation, suggested action, affected customers, `revenue_at_stake` and priority. **Revenue at stake is measured, not predicted**: it is the affected customers' net revenue in the 12 months before `as_of` ("these customers spent $X with you last year"). No revenue forecast is presented as fact.
 
 | Key                      | Trigger                                                                                                                                              | Affected customers                       | Suggested action                                                                                              |
