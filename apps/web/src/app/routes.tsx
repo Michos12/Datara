@@ -45,6 +45,7 @@ const PAGES_BUILT = new Set([
   '/segments',
   '/analytics',
   '/value',
+  '/recommendations',
 ]);
 
 export const routes: RouteObject[] = [
@@ -100,6 +101,20 @@ export const routes: RouteObject[] = [
             lazy: () =>
               import('../features/behavior/BehaviorPage').then((m) => ({
                 Component: m.BehaviorPage,
+              })),
+          },
+          {
+            path: 'recommendations',
+            lazy: () =>
+              import('../features/recommendations/RecommendationsPage').then((m) => ({
+                Component: m.RecommendationsPage,
+              })),
+          },
+          {
+            path: 'recommendations/:id',
+            lazy: () =>
+              import('../features/recommendations/RecommendationDetailPage').then((m) => ({
+                Component: m.RecommendationDetailPage,
               })),
           },
           {

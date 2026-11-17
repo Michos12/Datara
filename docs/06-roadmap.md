@@ -280,6 +280,19 @@ gantt
 
 ## M7 — Recommendation engine (≈2 weeks)
 
+> **Status (2026-11-16): implemented.** Notes on what changed from the plan:
+>
+> - Rules run inside the recompute job's write transaction (not a separate job), and each rule is
+>   isolated: a failing rule is logged in the run's stats and the others still run.
+> - The lifecycle is a pure `reconcile` step (tested without a database) applied by `save`.
+>   Recommendations gained `missed_runs` (expiry after two runs), `status_revenue_cents` and
+>   `status_changed_at` (the 90-day dismissal cooldown and its +50% exception); done ones reopen
+>   after 30 days.
+> - The datagen now plants "quiet VIPs" (a quarter of VIPs stop buying 60–150 days before the
+>   end, from their own random stream); the end-to-end test asserts ≥ 80% of them are flagged.
+> - The rule text is generated in English by the analytics service; the UI translates rule
+>   names, statuses, priorities and metric labels.
+
 **Functional requirements:** REC-01 … 05.
 
 **Technical implementation**

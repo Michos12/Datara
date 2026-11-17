@@ -214,14 +214,14 @@ All accept the common parameters in §1.7 where meaningful, and return the envel
 
 ### 2.10 Recommendations (P1)
 
-| Method | Path                                 | Roles | Description                                                                                           |
-| ------ | ------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------- |
-| GET    | `/recommendations`                   | OANV  | Query: `status` (default `open,acknowledged`), `priority`, `ruleKey`. Sorted by `priorityScore` desc. |
-| GET    | `/recommendations/:id`               | OANV  | Full detail (§3.4).                                                                                   |
-| PATCH  | `/recommendations/:id`               | OAN   | `{ status: "acknowledged" \| "done" \| "dismissed", dismissReason? }`.                                |
-| GET    | `/recommendations/:id/customers`     | OAN   | Affected customers (paginated).                                                                       |
-| GET    | `/recommendations/:id/customers.csv` | OAN   | Export affected customers (audited).                                                                  |
-| GET    | `/recommendations/rules`             | OA    | Rule catalogue with thresholds and enabled flag (P2: `PATCH` to tune).                                |
+| Method | Path                                 | Roles | Description                                                                                                                                                                 |
+| ------ | ------------------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/recommendations`                   | OANV  | Query: `status` (comma-separated, default `open,acknowledged`), `priority` (comma-separated), `ruleKey`, `limit` (≤ 100, default 50). Sorted by `priorityScore` desc.       |
+| GET    | `/recommendations/:id`               | OANV  | Full detail (§3.4), including `revenueAtStakeBasis` and `dismissReason`.                                                                                                    |
+| PATCH  | `/recommendations/:id`               | OAN   | `{ status: "acknowledged" \| "done" \| "dismissed", dismissReason? }`; the reason is required for (and only for) dismissals. 409 on an expired recommendation. Audited.     |
+| GET    | `/recommendations/:id/customers`     | OAN   | Affected customers, highest trailing-12-month spend first, with name, email, latest segment and last order date. Offset pagination (`limit` ≤ 200, `cursor`, `page.total`). |
+| GET    | `/recommendations/:id/customers.csv` | OAN   | Export affected customers (formula-neutralised cells, audited).                                                                                                             |
+| GET    | `/recommendations/rules`             | OA    | Rule catalogue from the analytics service: key, version, trigger, action, thresholds, `enabled` (P2: `PATCH` to tune).                                                      |
 
 ### 2.11 Reports & exports
 

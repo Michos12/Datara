@@ -59,6 +59,10 @@ export class AnalyticsClient {
     return this.call('GET', '/internal/definitions');
   }
 
+  recommendationRules(): Promise<unknown> {
+    return this.call('GET', '/internal/recommendations/rules');
+  }
+
   private async call(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
     let res: Response;
     try {

@@ -14,6 +14,8 @@ import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { AnalyticsService } from './modules/analytics/analytics.service.js';
 import { BehaviorService } from './modules/analytics/behavior.service.js';
 import { ValueService } from './modules/analytics/value.service.js';
+import { recommendationRouter } from './modules/recommendations/recommendation.routes.js';
+import { RecommendationService } from './modules/recommendations/recommendation.service.js';
 import { interactionRouter } from './modules/interactions/interaction.routes.js';
 import { InteractionService } from './modules/interactions/interaction.service.js';
 import { authRouter } from './modules/auth/auth.routes.js';
@@ -119,6 +121,13 @@ export function createApp(deps: AppDeps): Express {
       }),
     );
     v1.use(segmentRouter({ segments, tokens }));
+    v1.use(
+      recommendationRouter({
+        recommendations: new RecommendationService(deps.database, analyticsClient, deps.now),
+        db: deps.database,
+        tokens,
+      }),
+    );
     v1.use(exportRouter({ db: deps.database, tokens, ...(deps.now ? { now: deps.now } : {}) }));
   }
 

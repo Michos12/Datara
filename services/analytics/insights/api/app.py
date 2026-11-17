@@ -15,6 +15,7 @@ from insights.db import HealthProbe
 from insights.definitions import DEFINITIONS
 from insights.metrics.rfm import SegmentConfig
 from insights.periods import Period
+from insights.recommendations.rules import RULE_CATALOGUE
 
 
 class HealthChecks(BaseModel):
@@ -228,6 +229,11 @@ def create_app(
     def definitions() -> dict[str, Any]:
         """Metric registry: key, version, formula and period rule of every metric."""
         return {"data": [d.to_dict() for d in DEFINITIONS]}
+
+    @app.get("/internal/recommendations/rules", dependencies=[Depends(require_service_token)])
+    def recommendation_rules() -> dict[str, Any]:
+        """Rule catalogue: key, version, trigger, suggested action and thresholds (REC-03)."""
+        return {"data": RULE_CATALOGUE}
 
     @app.post("/internal/query/overview", dependencies=[Depends(require_service_token)])
     def query_overview(query: OverviewQuery) -> dict[str, Any]:

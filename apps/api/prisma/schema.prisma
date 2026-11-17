@@ -42,15 +42,16 @@ model Organization {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships    Membership[]
-  refreshTokens  RefreshToken[]
-  auditLogs      AuditLog[]
-  customers      Customer[]
-  orders         Order[]
-  products       Product[]
-  imports        Import[]
-  segmentConfigs SegmentConfig[]
-  interactions   Interaction[]
+  memberships     Membership[]
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  customers       Customer[]
+  orders          Order[]
+  products        Product[]
+  imports         Import[]
+  segmentConfigs  SegmentConfig[]
+  interactions    Interaction[]
+  recommendations Recommendation[]
 
   @@map("organizations")
 }
@@ -423,6 +424,76 @@ model SegmentConfig {
 
   @@unique([organizationId, version])
   @@map("segment_configs")
+}
+
+// ───────────── Recommendations (M7) ─────────────
+// Written by the analytics worker at the end of each snapshot; status changed through the API.
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum RecommendationStatus {
+  OPEN
+  ACKNOWLEDGED
+  DONE
+  DISMISSED
+  EXPIRED
+}
+
+/// A rule finding (docs/05-analytics-methodology.md §10). One row per fingerprint: a recurring
+/// condition updates its row instead of creating duplicates.
+model Recommendation {
+  id                  String                   @id @db.Uuid
+  organizationId      String                   @map("organization_id") @db.Uuid
+  /// Last run that detected the condition.
+  runId               String                   @map("run_id") @db.Uuid
+  ruleKey             String                   @map("rule_key")
+  ruleVersion         Int                      @map("rule_version")
+  /// rule_key + ":" + scope
+  fingerprint         String
+  priority            Priority
+  priorityScore       Decimal                  @map("priority_score") @db.Decimal(8, 4)
+  status              RecommendationStatus     @default(OPEN)
+  title               String
+  opportunity         String
+  explanation         String
+  suggestedAction     String                   @map("suggested_action")
+  /// Structured supporting metrics (rule-specific).
+  metrics             Json                     @default("{}")
+  affectedCustomers   Int                      @map("affected_customers")
+  /// Affected customers' net revenue in the 12 months before the run (measured, not predicted).
+  revenueAtStakeCents BigInt?                  @map("revenue_at_stake_cents")
+  dismissReason       String?                  @map("dismiss_reason")
+  /// Revenue at stake when dismissed or marked done: reopening needs +50% (REC-04).
+  statusRevenueCents  BigInt?                  @map("status_revenue_cents")
+  statusChangedById   String?                  @map("status_changed_by_id") @db.Uuid
+  statusChangedAt     DateTime?                @map("status_changed_at") @db.Timestamptz(6)
+  /// Consecutive runs without the condition; two expire an open recommendation.
+  missedRuns          Int                      @default(0) @map("missed_runs")
+  firstDetectedAt     DateTime                 @default(now()) @map("first_detected_at") @db.Timestamptz(6)
+  lastDetectedAt      DateTime                 @default(now()) @map("last_detected_at") @db.Timestamptz(6)
+  organization        Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customers           RecommendationCustomer[]
+
+  @@unique([organizationId, fingerprint])
+  @@index([organizationId, status, priority])
+  @@map("recommendations")
+}
+
+model RecommendationCustomer {
+  recommendationId String         @map("recommendation_id") @db.Uuid
+  customerId       String         @map("customer_id") @db.Uuid
+  organizationId   String         @map("organization_id") @db.Uuid
+  /// The customer's net revenue in the 12 months before the run, for ordering the list.
+  valueCents       BigInt         @default(0) @map("value_cents")
+  recommendation   Recommendation @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@id([recommendationId, customerId])
+  @@index([organizationId, recommendationId, valueCents(sort: Desc)])
+  @@map("recommendation_customers")
 }
 
 // ───────────── Operations ─────────────

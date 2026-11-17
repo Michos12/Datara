@@ -18,6 +18,7 @@ import {
 } from '../../lib/format';
 import { useSession } from '../auth/AuthProvider';
 import { useSegmentConfig } from '../segments/queries';
+import { TopRecommendations } from '../recommendations/TopRecommendations';
 import { KpiCard } from './KpiCard';
 import {
   bucketLabel,
@@ -226,6 +227,8 @@ export function OverviewPage() {
                   />
                 ))}
           </div>
+
+          <TopRecommendations currency={currency} />
 
           {data && (
             <div className="mt-6 grid gap-6 xl:grid-cols-2">

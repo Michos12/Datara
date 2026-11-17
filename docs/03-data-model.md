@@ -240,7 +240,7 @@ erDiagram
 - **Orders → Customers** is optional: guest orders (`customer_id IS NULL`) count toward revenue but not toward customer metrics ([OPEN-7]).
 - **Products** are optional. The platform works with order totals alone; item-level data enables future product affinity analysis.
 - **Analytics rows belong to a run.** The "current" view of each table is the latest `succeeded` run for the organization. Old runs are kept for trend and segment-migration analysis, then pruned ([OPEN-11]).
-- **Recommendations** have a `fingerprint` (`rule_key` + stable parameters, e.g. segment) so a recurring condition updates the existing open recommendation instead of creating duplicates, and a dismissed one stays dismissed (REC-04).
+- **Recommendations** (M7) also store `missed_runs`, `status_revenue_cents` and `status_changed_at` for the lifecycle, and `recommendation_customers.value_cents` (trailing-12-month spend) to order the affected list. They have a `fingerprint` (`rule_key` + stable parameters, e.g. segment) so a recurring condition updates the existing open recommendation instead of creating duplicates, and a dismissed one stays dismissed (REC-04).
 
 ## 3. Prisma schema (proposal)
 

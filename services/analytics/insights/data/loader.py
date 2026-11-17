@@ -40,7 +40,8 @@ GROUP BY 1, 2
 CUSTOMERS_SQL = """
 SELECT id::text AS customer_id,
        (created_at AT TIME ZONE %(tz)s)::date AS created_day,
-       registered_at
+       registered_at,
+       marketing_consent
 FROM customers
 WHERE organization_id = %(org)s AND deleted_at IS NULL
 """
@@ -108,7 +109,8 @@ class OrgData:
     purchases: pd.DataFrame
     """customer_id (str | None), day (datetime64), orders (int), net (int)"""
     customers: pd.DataFrame
-    """customer_id, since (datetime64): the customer's start date (see `customer_since`)"""
+    """customer_id, since (datetime64): the customer's start date (see `customer_since`), and
+    marketing_consent (bool) when loaded from the database"""
     interactions: pd.DataFrame = field(default_factory=EMPTY_INTERACTIONS.copy)
     """customer_id, day (datetime64), type, channel (str | None), n (int)"""
     engagement: EngagementConfig = DEFAULT_ENGAGEMENT
@@ -132,7 +134,8 @@ def load_org(conn: psycopg.Connection, organization_id: UUID) -> OrgData:
         purchases = pd.DataFrame(cur.fetchall(), columns=["customer_id", "day", "orders", "net"])
         cur.execute(CUSTOMERS_SQL, params)
         customers = pd.DataFrame(
-            cur.fetchall(), columns=["customer_id", "created_day", "registered_at"]
+            cur.fetchall(),
+            columns=["customer_id", "created_day", "registered_at", "marketing_consent"],
         )
         cur.execute(INTERACTIONS_SQL, params)
         interactions = pd.DataFrame(
@@ -172,6 +175,8 @@ def customer_since(customers: pd.DataFrame, purchases: pd.DataFrame) -> pd.DataF
     first_purchase = customers["customer_id"].map(first)
     since = pd.concat([registered, first_purchase], axis=1).min(axis=1)
     out["since"] = pd.to_datetime(since.fillna(created))
+    if "marketing_consent" in customers:
+        out["marketing_consent"] = customers["marketing_consent"].fillna(False).astype(bool)
     return out.reset_index(drop=True)
 
 

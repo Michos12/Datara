@@ -27,6 +27,8 @@ from insights.metrics.core import Ratio, customer_metrics, lifecycle_counts, per
 from insights.metrics.engagement import engagement_scores
 from insights.metrics.rfm import rfm
 from insights.periods import Period, add_months, buckets, today_in
+from insights.recommendations.engine import build_context, evaluate
+from insights.recommendations.engine import save as save_recommendations
 from insights.segments import load_active_segment_config
 from insights.worker.queue import Job
 
@@ -162,11 +164,14 @@ def recompute(job: Job, db: Database) -> None:
         metrics = metrics.merge(scores[["customer_id", "score"]], on="customer_id", how="left")
         metrics = metrics.rename(columns={"score": "engagement_score"})
         series = period_metric_rows(data, today)
+        context = build_context(metrics, data.purchases, data.customers, today, data.settings)
+        findings, rule_errors = evaluate(context)
         computed = time.perf_counter()
 
         with db.tenant_transaction(org) as conn:
             _write_customer_metrics(conn, run_id, org, metrics)
             _write_period_metrics(conn, run_id, org, series)
+            recommendations = save_recommendations(conn, org, run_id, findings, datetime.now(UTC))
             stats = {
                 "customers": len(metrics),
                 "purchase_rows": len(data.purchases),
@@ -175,6 +180,8 @@ def recompute(job: Job, db: Database) -> None:
                     str(k): int(v) for k, v in metrics["segment_key"].value_counts().items()
                 },
                 "engaged_customers": int(metrics["engagement_score"].notna().sum()),
+                "recommendations": recommendations,
+                **({"rule_errors": rule_errors} if rule_errors else {}),
                 "seconds": {
                     "load": round(loaded - started, 3),
                     "compute": round(computed - loaded, 3),
