@@ -11,6 +11,7 @@ import { AnalyticsService } from '../../src/modules/analytics/analytics.service.
 import { BehaviorService } from '../../src/modules/analytics/behavior.service.js';
 import { ValueService } from '../../src/modules/analytics/value.service.js';
 import { RecommendationService } from '../../src/modules/recommendations/recommendation.service.js';
+import { privacyJobHandlers } from '../../src/modules/privacy/privacy.jobs.js';
 import { PDF_REPORT_JOB, ReportService } from '../../src/modules/reports/report.service.js';
 import { SegmentService } from '../../src/modules/segments/segment.service.js';
 import { Database } from '../../src/infra/database.js';
@@ -73,6 +74,7 @@ export function createTestContext(
     });
     handlers[PDF_REPORT_JOB] = (job) => reports.generatePdf(job);
   }
+  Object.assign(handlers, privacyJobHandlers({ db, storage }));
   const silent = pino({ level: 'silent' });
   const app = createApp({
     config: testConfig({ databaseUrl: inject('databaseUrl') }),

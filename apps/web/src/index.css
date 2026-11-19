@@ -13,7 +13,8 @@
   --color-line: #e2e5ea;
   --color-ink: #161a22;
   --color-ink-muted: #5b6474;
-  --color-ink-subtle: #8a92a1;
+  /* Darkest of the greys still meeting WCAG AA (4.5:1) for small text on every surface. */
+  --color-ink-subtle: #696f7a;
   --color-accent: #2f5bd3;
   --color-accent-soft: #e8eefc;
   --color-positive: #1d7a4d;
@@ -36,7 +37,7 @@
     --color-line: #2a303d;
     --color-ink: #e8ebf0;
     --color-ink-muted: #a3abba;
-    --color-ink-subtle: #737c8c;
+    --color-ink-subtle: #848c9a;
     --color-accent: #7c9cf5;
     --color-accent-soft: #1e2a4a;
     --color-positive: #4cc38a;
@@ -57,7 +58,7 @@
   --color-line: #2a303d;
   --color-ink: #e8ebf0;
   --color-ink-muted: #a3abba;
-  --color-ink-subtle: #737c8c;
+  --color-ink-subtle: #848c9a;
   --color-accent: #7c9cf5;
   --color-accent-soft: #1e2a4a;
   --color-positive: #4cc38a;

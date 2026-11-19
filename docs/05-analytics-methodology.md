@@ -307,3 +307,20 @@ priority_score = impact × confidence, confidence = min(1, affected_customers / 
 3. **Synthetic ground truth:** `tools/datagen` simulates customers with known purchase rates and planted events (e.g. a churn wave in a given month, a high-value group). End-to-end tests assert that metrics detect them (retention drop appears in the right month; the planted group is mostly classified At Risk).
 4. **SQL vs Pandas cross-check:** overview KPIs are computed both ways in a test and must match exactly.
 5. **Definition registry test:** every metric used in an API response exists in the registry with a version and formula text.
+
+## 12. Data retention
+
+Defaults adopted for OPEN-11 (M9). Tenant data is pruned by each organization's nightly recompute, inside that organization's RLS context; data that belongs to no tenant is pruned by the daily `maintenance.cleanup` job.
+
+| Data                                                           | Kept                                                                                                                        | Pruned by   |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| Analytics snapshots (runs, per-customer and period metrics)    | The latest 7 successful runs, plus the last run of each month for 24 months. Failed or running runs: 1 day.                 | Recompute   |
+| Audit log                                                      | 12 months. The runtime role may delete only entries older than that (RLS policy); within the window the log is append-only. | Recompute   |
+| Invitations                                                    | 30 days after acceptance, revocation or expiry                                                                              | Recompute   |
+| Query cache                                                    | 30 days (entries for older data versions are dropped as soon as a newer result is stored)                                   | Recompute   |
+| Finished background jobs                                       | 30 days                                                                                                                     | Maintenance |
+| Expired or revoked refresh tokens, used or expired reset links | 7 days                                                                                                                      | Maintenance |
+| Uploaded CSVs and import error reports                         | 30 days                                                                                                                     | Maintenance |
+| Generated PDF reports and data exports                         | 7 days                                                                                                                      | Maintenance |
+
+Customer, order and interaction records are kept until the organization deletes them (erasure, organization deletion).

@@ -1,0 +1,19 @@
+# Weekly dependency update PRs (M9 security review). Security updates arrive as soon as
+# GitHub publishes an advisory, independent of this schedule.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      dev-tooling:
+        dependency-type: development
+  - package-ecosystem: uv
+    directory: /services/analytics
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web, /services/analytics]
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

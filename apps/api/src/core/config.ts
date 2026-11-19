@@ -6,6 +6,29 @@ const booleanString = z
   .enum(['true', 'false', '1', '0'])
   .transform((value) => value === 'true' || value === '1');
 
+/**
+ * Platforms like Render hand out the database owner's URL and service addresses as "host:port".
+ * These helpers turn them into what the app needs, so the deploy config stays declarative.
+ */
+export function deriveEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out = { ...env };
+  // The runtime role (app_user, subject to RLS) on the same server as the owner URL.
+  if (!out.DATABASE_URL && out.DIRECT_DATABASE_URL && out.APP_DB_USER && out.APP_DB_PASSWORD) {
+    try {
+      const url = new URL(out.DIRECT_DATABASE_URL);
+      url.username = encodeURIComponent(out.APP_DB_USER);
+      url.password = encodeURIComponent(out.APP_DB_PASSWORD);
+      out.DATABASE_URL = url.toString();
+    } catch {
+      // Left unset: validation below reports it.
+    }
+  }
+  if (out.ANALYTICS_URL && !/^https?:\/\//.test(out.ANALYTICS_URL)) {
+    out.ANALYTICS_URL = `http://${out.ANALYTICS_URL}`;
+  }
+  return out;
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   APP_VERSION: z.string().default('0.0.0'),
@@ -37,6 +60,12 @@ const envSchema = z.object({
   MAIL_FROM: z.string().min(3).default('Customer Insights <no-reply@customer-insights.local>'),
   /** Public URL of the web app, for links in emails. */
   APP_URL: z.url().default('http://localhost:5173'),
+  /** Connections in the API's Postgres pool (each request holds one per transaction). */
+  DATABASE_POOL_SIZE: z.coerce.number().int().min(2).max(100).default(20),
+  /** Run the background-job loop inside the API process (single-disk deployments). */
+  WORKER_IN_PROCESS: booleanString.default(false),
+  /** Bearer token for GET /metrics; unset disables the endpoint. */
+  METRICS_TOKEN: z.string().min(16).optional(),
 });
 
 export interface Config {
@@ -57,6 +86,9 @@ export interface Config {
   storageDir: string;
   mail: { smtpUrl: string | null; from: string };
   appUrl: string;
+  workerInProcess: boolean;
+  metricsToken: string | null;
+  databasePoolSize: number;
 }
 
 export class ConfigError extends Error {
@@ -72,7 +104,7 @@ function parseTrustProxy(value: string): boolean | number | string {
 
 /** Validates environment variables once at startup; the process refuses to start on bad config. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const result = envSchema.safeParse(env);
+  const result = envSchema.safeParse(deriveEnvironment(env));
   if (!result.success) {
     const issues = result.error.issues
       .map((issue) => `  - ${issue.path.join('.')}: ${issue.message}`)
@@ -98,5 +130,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     storageDir: e.STORAGE_DIR,
     mail: { smtpUrl: e.SMTP_URL ?? null, from: e.MAIL_FROM },
     appUrl: e.APP_URL.replace(/\/+$/, ''),
+    workerInProcess: e.WORKER_IN_PROCESS,
+    databasePoolSize: e.DATABASE_POOL_SIZE,
+    metricsToken: e.METRICS_TOKEN ?? null,
   };
 }

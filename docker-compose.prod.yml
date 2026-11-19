@@ -1,0 +1,83 @@
+# Production images, wired like the Render deployment (render.yaml), for a local smoke test:
+#   docker compose -f docker-compose.prod.yml up --build
+# Then open http://localhost:8080. Only the web service is published; API and analytics are
+# reachable only on the internal network, as on Render. The database starts empty with just the
+# owner role, like managed Postgres: the API's pre-start step creates the runtime role and
+# migrates (npm run db:deploy), exactly what Render's preDeployCommand runs.
+name: customer-insights-prod
+
+x-runtime-env: &runtime-env
+  DIRECT_DATABASE_URL: postgresql://insights_owner:prod-smoke-owner@db:5432/customer_insights
+  APP_DB_USER: app_user
+  APP_DB_PASSWORD: prod-smoke-app-password
+  ANALYTICS_SERVICE_TOKEN: prod-smoke-service-token-0123456789
+  LOG_JSON: 'true'
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: insights_owner
+      POSTGRES_PASSWORD: prod-smoke-owner
+      POSTGRES_DB: customer_insights
+    volumes:
+      - prod-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U insights_owner -d customer_insights']
+      interval: 5s
+      retries: 20
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    environment:
+      <<: *runtime-env
+      NODE_ENV: production
+      API_PORT: 4000
+      JWT_SECRET: prod-smoke-jwt-secret-that-is-long-enough-0123456789
+      ANALYTICS_URL: analytics:8000
+      STORAGE_DIR: /data/storage
+      WORKER_IN_PROCESS: 'true'
+      TRUST_PROXY: '1'
+      # The smoke test runs on plain http://localhost; production keeps the secure default.
+      COOKIE_SECURE: 'false'
+      APP_URL: http://localhost:8080
+      SMTP_URL: smtp://mailpit:1025
+      METRICS_TOKEN: prod-smoke-metrics-token-0123
+    command: ['sh', '-c', 'npm run db:deploy && exec node dist/server.js']
+    volumes:
+      - prod-storage:/data/storage
+    depends_on:
+      db: { condition: service_healthy }
+
+  analytics:
+    build: { context: ./services/analytics }
+    environment: *runtime-env
+    depends_on:
+      api: { condition: service_healthy }
+
+  analytics-worker:
+    build: { context: ./services/analytics }
+    environment: *runtime-env
+    command: ['python', '-m', 'insights.worker']
+    healthcheck:
+      disable: true
+    depends_on:
+      api: { condition: service_healthy }
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    environment:
+      API_UPSTREAM: api:4000
+    ports:
+      - '127.0.0.1:8080:8080'
+    depends_on:
+      api: { condition: service_healthy }
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - '127.0.0.1:8026:8025'
+
+volumes:
+  prod-db:
+  prod-storage:

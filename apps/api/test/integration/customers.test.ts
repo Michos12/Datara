@@ -1,5 +1,6 @@
 import { customerPageSchema, customerSchema } from '@ci/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { newId } from '../../src/core/ids.js';
 import { authed, createTestContext, refreshRequest, signup, type TestSession } from './harness.js';
 
 const ctx = createTestContext();
@@ -183,9 +184,11 @@ describe('customer list', () => {
     const session = await signup(ctx.app);
     const own = authed(ctx.app, session.accessToken);
     const spends = [3000, 1000, 5000, 0, 2000];
+    const ids: string[] = [];
     for (const [i, spend] of spends.entries()) {
       const c = (await own.post('/customers', { externalId: `S-${i}`, firstName: `Spender ${i}` }))
         .body;
+      ids.push(c.id);
       if (spend > 0) {
         await own.post('/orders', {
           customerId: c.id,
@@ -193,6 +196,33 @@ describe('customer list', () => {
           grossCents: spend,
         });
       }
+    }
+    // Sorting and filtering by spend read the latest analytics snapshot (M9): write one, as
+    // the nightly recompute would.
+    const runId = newId();
+    const orgId = session.body.organization.id;
+    await ctx.owner.analyticsRun.create({
+      data: {
+        id: runId,
+        organizationId: orgId,
+        asOf: new Date('2026-10-02'),
+        dataVersion: 0n,
+        status: 'SUCCEEDED',
+      },
+    });
+    for (const [i, spend] of spends.entries()) {
+      await ctx.owner.analyticsCustomerMetrics.create({
+        data: {
+          runId,
+          customerId: ids[i]!,
+          organizationId: orgId,
+          orderCount: spend > 0 ? 1 : 0,
+          totalNetCents: BigInt(spend),
+          lastOrderDate: spend > 0 ? new Date('2026-10-01') : null,
+          lifecycleStatus: spend > 0 ? 'ACTIVE' : 'PROSPECT',
+          historicalClvCents: BigInt(spend),
+        },
+      });
     }
 
     const seen: number[] = [];
@@ -215,6 +245,16 @@ describe('customer list', () => {
     expect(withoutOrders.body.data).toHaveLength(1);
     const search = await own.get('/customers?q=spender%203');
     expect(search.body.data).toHaveLength(1);
+
+    // Figures shown are live: an order after the snapshot shows at once.
+    await own.post('/orders', {
+      customerId: ids[1],
+      orderedAt: '2026-10-05T00:00:00Z',
+      grossCents: 700,
+    });
+    const live = await own.get('/customers?sort=-total_spent');
+    const second = live.body.data.find((c: { id: string }) => c.id === ids[1]);
+    expect(second.stats).toMatchObject({ totalNetCents: 1700, orderCount: 2 });
   });
 
   it('rejects tampered cursors', async () => {

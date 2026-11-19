@@ -8,8 +8,10 @@ segments, customer lifetime value, and rule-based recommendations.
 > every tenant table, customers and orders, CSV import, demo data, and the Business Overview with
 > documented KPIs, trends, nightly analytics snapshots and CSV export. RFM segmentation (M4), retention, churn and cohort analysis (M5), and purchase
 > frequency, CLV, journey and engagement with interactions (M6), and the recommendation engine
-> (M7), and reports, exports and collaboration (M8) are in place; hardening and deployment (M9)
-> come next. Local emails land in Mailpit at http://localhost:8025.
+> (M7), reports, exports and collaboration (M8), and production hardening (M9) are in place.
+> Deployment to Render is described in [docs/08-deployment.md](docs/08-deployment.md), and the
+> load, security and accessibility results in [docs/09-hardening-report.md](docs/09-hardening-report.md).
+> Local emails land in Mailpit at http://localhost:8025.
 > See the [roadmap](docs/06-roadmap.md).
 
 ## Architecture at a glance

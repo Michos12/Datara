@@ -128,6 +128,11 @@ def load_org(conn: psycopg.Connection, organization_id: UUID) -> OrgData:
         raise LookupError(f"Organization {organization_id} not found")
     timezone, currency, industry, raw_settings, data_version = row
     params = {"org": organization_id, "tz": timezone}
+    # These queries always aggregate a whole organization, where hash joins win. Right after a
+    # bulk import, table statistics can be stale and the planner picks nested loops that take
+    # minutes instead of seconds at 1M+ orders (measured in M9): rule them out for this
+    # transaction only.
+    conn.execute("SET LOCAL enable_nestloop = off")
 
     with conn.cursor() as cur:
         cur.execute(PURCHASES_SQL, params)

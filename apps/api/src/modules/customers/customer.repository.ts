@@ -45,7 +45,12 @@ interface CustomerRow {
 
 const COUNTABLE = sql`o.deleted_at IS NULL AND o.status IN ('COMPLETED', 'PARTIALLY_REFUNDED')`;
 
-/** Sort expression and the SQL type used to bind its cursor value. Whitelisted: never user SQL. */
+/**
+ * Sort expression and the SQL type used to bind its cursor value. Whitelisted: never user SQL.
+ * Spend, order count and last purchase sort by the latest analytics snapshot (m): aggregating
+ * every order of a large tenant on each page load does not scale (M9 load test: 2.6 s at 1.2M
+ * orders). The figures shown for each customer are still computed live (page stats below).
+ */
 const SORTS: Record<
   'name' | 'created_at' | 'total_spent' | 'order_count' | 'last_order_at',
   { expr: string; cast: string }
@@ -55,9 +60,12 @@ const SORTS: Record<
     cast: 'text',
   },
   created_at: { expr: 'c.created_at', cast: 'timestamptz' },
-  total_spent: { expr: 'coalesce(s.total_net, 0)', cast: 'bigint' },
-  order_count: { expr: 'coalesce(s.order_count, 0)', cast: 'int' },
-  last_order_at: { expr: `coalesce(s.last_at, '-infinity'::timestamptz)`, cast: 'timestamptz' },
+  total_spent: { expr: 'coalesce(m.total_net_cents, 0)', cast: 'bigint' },
+  order_count: { expr: 'coalesce(m.order_count, 0)', cast: 'int' },
+  last_order_at: {
+    expr: `coalesce(m.last_order_date::timestamptz, '-infinity'::timestamptz)`,
+    cast: 'timestamptz',
+  },
 };
 
 function parseSort(sort: CustomerSort) {
@@ -183,14 +191,15 @@ export async function listCustomers(
       coalesce(c.email::text, '') || ' ' || coalesce(c.external_id, '')
     ) ILIKE ${like}`);
   }
+  // Like the stats sorts, these filters read the latest snapshot.
   if (query.minSpentCents !== undefined)
-    filters.push(sql`coalesce(s.total_net, 0) >= ${query.minSpentCents}`);
+    filters.push(sql`coalesce(m.total_net_cents, 0) >= ${query.minSpentCents}`);
   if (query.maxSpentCents !== undefined)
-    filters.push(sql`coalesce(s.total_net, 0) <= ${query.maxSpentCents}`);
-  if (query.lastOrderFrom) filters.push(sql`s.last_at >= ${query.lastOrderFrom}::date`);
-  if (query.lastOrderTo) filters.push(sql`s.last_at < (${query.lastOrderTo}::date + 1)`);
-  if (query.hasOrders === 'true') filters.push(sql`s.order_count > 0`);
-  if (query.hasOrders === 'false') filters.push(sql`s.order_count IS NULL`);
+    filters.push(sql`coalesce(m.total_net_cents, 0) <= ${query.maxSpentCents}`);
+  if (query.lastOrderFrom) filters.push(sql`m.last_order_date >= ${query.lastOrderFrom}::date`);
+  if (query.lastOrderTo) filters.push(sql`m.last_order_date <= ${query.lastOrderTo}::date`);
+  if (query.hasOrders === 'true') filters.push(sql`coalesce(m.order_count, 0) > 0`);
+  if (query.hasOrders === 'false') filters.push(sql`coalesce(m.order_count, 0) = 0`);
   if (query.tag) filters.push(sql`${query.tag} = ANY(c.tags)`);
   if (query.segment === 'no_purchases') {
     filters.push(sql`m.lifecycle_status IS NOT NULL AND m.segment_key IS NULL`);
@@ -208,13 +217,31 @@ export async function listCustomers(
   }
 
   const direction = raw(sort.desc ? 'DESC' : 'ASC');
+  // Pick the page first (customers + snapshot only), then compute live stats for those rows.
   const rows = await tx.$queryRaw<CustomerRow[]>`
-    ${statsCte(organizationId)}
-    SELECT ${SELECT_COLUMNS}, (${raw(sort.expr)})::text AS sort_value
-    FROM customers c LEFT JOIN stats s ON s.customer_id = c.id ${SNAPSHOT_JOIN}
-    WHERE ${join(filters, ' AND ')}
-    ORDER BY ${raw(sort.expr)} ${direction}, c.id ${direction}
-    LIMIT ${query.limit + 1}`;
+    WITH latest_run AS (
+      SELECT id FROM analytics_runs
+      WHERE organization_id = ${organizationId}::uuid AND status = 'SUCCEEDED'
+      ORDER BY started_at DESC LIMIT 1
+    ),
+    page AS (
+      SELECT c.id, (${raw(sort.expr)})::text AS sort_value
+      FROM customers c ${SNAPSHOT_JOIN}
+      WHERE ${join(filters, ' AND ')}
+      ORDER BY ${raw(sort.expr)} ${direction}, c.id ${direction}
+      LIMIT ${query.limit + 1}
+    )
+    SELECT ${SELECT_COLUMNS}, page.sort_value
+    FROM page
+    JOIN customers c ON c.id = page.id
+    ${SNAPSHOT_JOIN}
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS order_count, sum(o.net_cents)::bigint AS total_net,
+             min(o.ordered_at) AS first_at, max(o.ordered_at) AS last_at
+      FROM orders o
+      WHERE o.organization_id = ${organizationId}::uuid AND o.customer_id = c.id AND ${COUNTABLE}
+    ) s ON true
+    ORDER BY ${raw(sort.expr)} ${direction}, c.id ${direction}`;
 
   const page = rows.slice(0, query.limit);
   const last = page.at(-1);
