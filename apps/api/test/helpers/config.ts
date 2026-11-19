@@ -17,6 +17,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     corsOrigins: ['http://localhost:5173'],
     logLevel: 'silent',
     storageDir: 'storage-test',
+    mail: { smtpUrl: null, from: 'Customer Insights <test@example.com>' },
+    appUrl: 'http://app.test',
     ...overrides,
   };
 }

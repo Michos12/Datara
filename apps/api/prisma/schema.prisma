@@ -52,6 +52,7 @@ model Organization {
   segmentConfigs  SegmentConfig[]
   interactions    Interaction[]
   recommendations Recommendation[]
+  invitations     Invitation[]
 
   @@map("organizations")
 }
@@ -65,8 +66,9 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships   Membership[]
-  refreshTokens RefreshToken[]
+  memberships         Membership[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
 }
@@ -91,6 +93,41 @@ model RefreshToken {
   @@index([userId])
   @@index([familyId])
   @@map("refresh_tokens")
+}
+
+/// Single-use password reset link (AUTH-06). Only a SHA-256 hash is stored; expires in an hour.
+/// Not RLS-protected, like refresh_tokens: users are not tenant data and only auth reads it.
+model PasswordResetToken {
+  id        String    @id @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/// Invitation to join an organization with a role (AUTH-04). Expires after 7 days. The token is
+/// emailed once; only its hash is stored. Public acceptance finds the row through the
+/// SECURITY DEFINER function app_invitation_by_token (RLS stays strict).
+model Invitation {
+  id             String       @id @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  email          String       @db.Citext
+  role           Role
+  tokenHash      String       @unique @map("token_hash")
+  invitedById    String?      @map("invited_by_id") @db.Uuid
+  expiresAt      DateTime     @map("expires_at") @db.Timestamptz(6)
+  acceptedAt     DateTime?    @map("accepted_at") @db.Timestamptz(6)
+  revokedAt      DateTime?    @map("revoked_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("invitations")
 }
 
 model Membership {
@@ -539,6 +576,8 @@ model Job {
   lockedAt       DateTime? @map("locked_at") @db.Timestamptz(6)
   lockedBy       String?   @map("locked_by")
   error          String?
+  /// Output of a finished job, e.g. { fileKey, fileName } of a generated report (M8).
+  result         Json?
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   finishedAt     DateTime? @map("finished_at") @db.Timestamptz(6)
 

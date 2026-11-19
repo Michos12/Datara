@@ -1,5 +1,6 @@
 import {
   authResponseSchema,
+  type AuthResponse,
   sessionSchema,
   type LoginRequest,
   type Organization,
@@ -29,6 +30,10 @@ interface AuthContextValue {
   logout(): Promise<void>;
   /** Replace the cached organization after it was edited. */
   updateOrganization(organization: Organization): void;
+  /** Move the session to another organization of the same user. */
+  switchOrganization(organizationId: string): Promise<void>;
+  /** Start a session from an auth response obtained elsewhere (e.g. accepting an invitation). */
+  startSession(response: AuthResponse): void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -119,9 +124,30 @@ export function AuthProvider({
     );
   }, []);
 
+  const startSession = useCallback(
+    (res: AuthResponse) => {
+      setAccessToken(res.accessToken);
+      queryClient.clear();
+      setState({ status: 'authenticated', session: res });
+    },
+    [queryClient],
+  );
+
+  const switchOrganization = useCallback(
+    async (organizationId: string) => {
+      const res = await apiRequest('POST', '/auth/switch-organization', {
+        body: { organizationId },
+        csrf: true,
+        schema: authResponseSchema,
+      });
+      startSession(res);
+    },
+    [startSession],
+  );
+
   const value = useMemo(
-    () => ({ state, login, signup, logout, updateOrganization }),
-    [state, login, signup, logout, updateOrganization],
+    () => ({ state, login, signup, logout, updateOrganization, switchOrganization, startSession }),
+    [state, login, signup, logout, updateOrganization, switchOrganization, startSession],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

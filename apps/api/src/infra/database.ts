@@ -54,11 +54,13 @@ export type Tx = TransactionClient;
  * Who a database transaction runs as, for row-level security (ADR-0004).
  * - organizationId: the active tenant; tenant tables are visible/writable only for it.
  * - userId: the signed-in user; lets them see their own memberships across organizations.
- * Omit both for tables without RLS (users, refresh_tokens); tenant tables then match no rows.
+ * - invitationTokenHash: during public invitation acceptance, makes that one invitation visible.
+ * Omit all for tables without RLS (users, refresh_tokens); tenant tables then match no rows.
  */
 export interface DbContext {
   organizationId?: string | null;
   userId?: string | null;
+  invitationTokenHash?: string | null;
 }
 
 /** Postgres error code reported by Prisma for unique constraint violations. */
@@ -81,7 +83,8 @@ export class Database {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT set_config('app.org_id', ${context.organizationId ?? ''}, true),
-               set_config('app.user_id', ${context.userId ?? ''}, true)`;
+               set_config('app.user_id', ${context.userId ?? ''}, true),
+               set_config('app.invitation_token', ${context.invitationTokenHash ?? ''}, true)`;
       return work(tx);
     });
   }

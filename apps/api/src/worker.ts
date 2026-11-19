@@ -7,7 +7,14 @@ import { dispatchJob, NODE_JOB_PREFIXES, type HandlerRegistry } from './infra/jo
 import { claimJob, completeJob, failJob, type ClaimedJob } from './infra/job-queue.js';
 import { createPrismaClient } from './infra/prisma.js';
 import { FileStorage } from './infra/storage.js';
+import { AnalyticsClient } from './infra/analytics-client.js';
+import { AnalyticsService } from './modules/analytics/analytics.service.js';
+import { BehaviorService } from './modules/analytics/behavior.service.js';
+import { ValueService } from './modules/analytics/value.service.js';
 import { importJobHandlers } from './modules/imports/import.jobs.js';
+import { RecommendationService } from './modules/recommendations/recommendation.service.js';
+import { PDF_REPORT_JOB, ReportService } from './modules/reports/report.service.js';
+import { SegmentService } from './modules/segments/segment.service.js';
 
 const IDLE_POLL_MS = 1000;
 
@@ -16,8 +23,23 @@ const logger = createLogger(config).child({ component: 'worker' });
 const prisma = createPrismaClient(config.databaseUrl);
 const workerId = `node-${hostname()}-${process.pid}`;
 
+const db = new Database(prisma);
+const storage = new FileStorage(config.storageDir);
+const client = new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);
+const segments = new SegmentService(db, client);
+const reports = new ReportService({
+  db,
+  analytics: new AnalyticsService(db, client),
+  behavior: new BehaviorService(db, client, segments),
+  value: new ValueService(db, client),
+  segments,
+  recommendations: new RecommendationService(db, client),
+  storage,
+});
+
 const handlers: HandlerRegistry = {
-  ...importJobHandlers({ db: new Database(prisma), storage: new FileStorage(config.storageDir) }),
+  ...importJobHandlers({ db, storage }),
+  [PDF_REPORT_JOB]: (job) => reports.generatePdf(job),
 };
 
 let running = true;

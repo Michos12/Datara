@@ -11,6 +11,7 @@ export interface NavItem {
     | 'customers'
     | 'imports'
     | 'settings'
+    | 'team'
     | 'methodology';
   /** Roadmap milestone that delivers the page (docs/06-roadmap.md). */
   milestone: string;
@@ -84,6 +85,12 @@ export const NAV_SECTIONS: { key: 'insights' | 'data' | 'workspace'; items: NavI
         key: 'settings',
         milestone: 'M1',
         summary: 'Organization, time zone, currency and analytics thresholds.',
+      },
+      {
+        path: '/team',
+        key: 'team',
+        milestone: 'M8',
+        summary: 'Members, roles and invitations.',
       },
       {
         path: '/methodology',

@@ -1,7 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import {
   INDUSTRY_PRESETS,
+  PASSWORD_RESET_TTL_MINUTES,
+  passwordSchema,
+  type AcceptInvitationRequest,
   type AuthResponse,
+  type InvitationPreview,
   type LoginRequest,
   type RefreshResponse,
   type Session,
@@ -11,6 +15,9 @@ import { AppError } from '../../core/errors.js';
 import { newId } from '../../core/ids.js';
 import type { AuthContext } from '../../core/request-context.js';
 import { isUniqueViolation, type Database, type Tx } from '../../infra/database.js';
+import type { Logger } from '../../core/logger.js';
+import type { Mailer } from '../../infra/mailer.js';
+import { passwordResetEmail } from './emails.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { seedSegmentConfig } from '../segments/segment.service.js';
 import { makeSlug, toOrganization } from '../organizations/organization.mapper.js';
@@ -35,6 +42,14 @@ export type RefreshOutcome =
   | { kind: 'grace'; response: RefreshResponse };
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
+const INVALID_LINK = 'This link is invalid or has expired';
+
+/** Optional collaborators for emails; without them, forgot-password sends nothing. */
+export interface AuthMail {
+  mailer: Mailer;
+  appUrl: string;
+  logger: Logger;
+}
 const SESSION_EXPIRED = 'Session expired. Please sign in again.';
 
 export class AuthService {
@@ -42,6 +57,7 @@ export class AuthService {
     private readonly db: Database,
     private readonly tokens: TokenService,
     private readonly now: () => number = Date.now,
+    private readonly mail: AuthMail | null = null,
   ) {}
 
   async signup(input: SignupRequest, ip: string | null): Promise<IssuedSession> {
@@ -208,6 +224,228 @@ export class AuthService {
     const session = await this.loadSession(auth.userId, auth.organizationId);
     if (!session) throw new AppError('UNAUTHENTICATED', SESSION_EXPIRED);
     return session;
+  }
+
+  // ───────────── organization switching (AUTH-05) ─────────────
+
+  /**
+   * Moves the session to another organization the user belongs to: a new refresh-token family
+   * for that organization replaces the current one, so a refresh can never drift back.
+   */
+  async switchOrganization(
+    auth: AuthContext,
+    organizationId: string,
+    presented: string | null,
+    ip: string | null,
+  ): Promise<IssuedSession> {
+    const ctx = await this.currentContext(auth.userId, organizationId);
+    if (!ctx) throw new AppError('FORBIDDEN', 'You are not a member of this organization');
+    if (presented) {
+      const stored = await this.db.run({}, (tx) =>
+        tx.refreshToken.findUnique({ where: { tokenHash: hashToken(presented) } }),
+      );
+      if (stored && stored.userId === auth.userId) {
+        await this.revokeFamily(stored.familyId, this.now());
+      }
+    }
+    const refreshToken = await this.db.run(ctx, async (tx) => {
+      await recordAudit(tx, {
+        organizationId,
+        actorUserId: auth.userId,
+        action: 'auth.switch_organization',
+        details: { from: auth.organizationId },
+        ip,
+      });
+      const { token } = await this.createRefreshToken(tx, { ...ctx, familyId: newId() });
+      return token;
+    });
+    return { refreshToken, response: await this.withAccessToken(ctx) };
+  }
+
+  // ───────────── password reset (AUTH-06) ─────────────
+
+  /**
+   * Emails a single-use reset link when the account exists. The caller always answers 202, so
+   * the response never reveals whether an email is registered.
+   */
+  async forgotPassword(email: string): Promise<void> {
+    const user = await this.db.run({}, (tx) => tx.user.findUnique({ where: { email } }));
+    if (!user || !this.mail) return;
+    const token = generateOpaqueToken();
+    await this.db.run({}, async (tx) => {
+      // Only the newest link works.
+      await tx.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date(this.now()) },
+      });
+      await tx.passwordResetToken.create({
+        data: {
+          id: newId(),
+          userId: user.id,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(this.now() + PASSWORD_RESET_TTL_MINUTES * 60_000),
+        },
+      });
+    });
+    // The token travels in the fragment, which browsers never send to servers or in Referer.
+    const link = `${this.mail.appUrl}/reset-password#token=${token}`;
+    try {
+      await this.mail.mailer.send(passwordResetEmail(user.email, link, PASSWORD_RESET_TTL_MINUTES));
+    } catch (err) {
+      this.mail.logger.error({ err }, 'password reset email failed');
+    }
+  }
+
+  /** Sets a new password from a reset link and signs the user out everywhere. */
+  async resetPassword(token: string, newPassword: string, ip: string | null): Promise<void> {
+    const now = new Date(this.now());
+    const stored = await this.db.run({}, (tx) =>
+      tx.passwordResetToken.findUnique({ where: { tokenHash: hashToken(token) } }),
+    );
+    if (!stored || stored.usedAt || stored.expiresAt <= now) {
+      throw new AppError('BAD_REQUEST', INVALID_LINK);
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await this.db.run({ userId: stored.userId }, async (tx) => {
+      // Conditional: a link used twice at the same moment succeeds only once.
+      const { count } = await tx.passwordResetToken.updateMany({
+        where: { id: stored.id, usedAt: null },
+        data: { usedAt: now },
+      });
+      if (count !== 1) throw new AppError('BAD_REQUEST', INVALID_LINK);
+      await tx.user.update({ where: { id: stored.userId }, data: { passwordHash } });
+      await tx.refreshToken.updateMany({
+        where: { userId: stored.userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+    });
+    const memberships = await this.db.run({ userId: stored.userId }, (tx) =>
+      tx.membership.findMany({
+        where: { userId: stored.userId },
+        select: { organizationId: true },
+      }),
+    );
+    for (const m of memberships) {
+      await this.db.run({ organizationId: m.organizationId }, (tx) =>
+        recordAudit(tx, {
+          organizationId: m.organizationId,
+          actorUserId: stored.userId,
+          action: 'auth.password_reset',
+          ip,
+        }),
+      );
+    }
+  }
+
+  // ───────────── invitations (AUTH-04) ─────────────
+
+  private async findInvitation(token: string) {
+    const tokenHash = hashToken(token);
+    const invitation = await this.db.run({ invitationTokenHash: tokenHash }, (tx) =>
+      tx.invitation.findUnique({ where: { tokenHash } }),
+    );
+    if (
+      !invitation ||
+      invitation.acceptedAt ||
+      invitation.revokedAt ||
+      invitation.expiresAt.getTime() <= this.now()
+    ) {
+      throw new AppError('BAD_REQUEST', 'This invitation is invalid, used or expired');
+    }
+    return invitation;
+  }
+
+  async previewInvitation(token: string): Promise<InvitationPreview> {
+    const invitation = await this.findInvitation(token);
+    const [organization, user] = await Promise.all([
+      this.db.run({ organizationId: invitation.organizationId }, (tx) =>
+        tx.organization.findUnique({ where: { id: invitation.organizationId } }),
+      ),
+      this.db.run({}, (tx) => tx.user.findUnique({ where: { email: invitation.email } })),
+    ]);
+    return {
+      organizationName: organization?.name ?? '',
+      email: invitation.email,
+      role: invitation.role,
+      accountExists: user !== null,
+      expiresAt: invitation.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * Joins the invited organization. An existing account proves itself with its password; a new
+   * account is created with the given name and password. Either way the session starts in the
+   * invited organization.
+   */
+  async acceptInvitation(
+    input: AcceptInvitationRequest,
+    ip: string | null,
+  ): Promise<IssuedSession> {
+    const invitation = await this.findInvitation(input.token);
+    const existing = await this.db.run({}, (tx) =>
+      tx.user.findUnique({ where: { email: invitation.email } }),
+    );
+    let userId: string;
+    let newUser: { passwordHash: string; fullName: string } | null = null;
+    if (existing) {
+      if (!(await verifyPassword(existing.passwordHash, input.password))) {
+        throw new AppError('UNAUTHENTICATED', 'Wrong password for this account');
+      }
+      userId = existing.id;
+    } else {
+      const errors: { path: string; message: string }[] = [];
+      if (!input.fullName) errors.push({ path: 'fullName', message: 'Required' });
+      const password = passwordSchema.safeParse(input.password);
+      if (!password.success) {
+        errors.push({ path: 'password', message: password.error.issues[0]!.message });
+      }
+      if (errors.length > 0) throw new AppError('VALIDATION_FAILED', 'Check the form', errors);
+      userId = newId();
+      newUser = { passwordHash: await hashPassword(input.password), fullName: input.fullName! };
+    }
+
+    const ctx: AuthContext = {
+      userId,
+      organizationId: invitation.organizationId,
+      role: invitation.role,
+    };
+    const refreshToken = await this.db.run(
+      { ...ctx, invitationTokenHash: invitation.tokenHash },
+      async (tx) => {
+        const { count } = await tx.invitation.updateMany({
+          where: { id: invitation.id, acceptedAt: null, revokedAt: null },
+          data: { acceptedAt: new Date(this.now()) },
+        });
+        if (count !== 1) throw new AppError('BAD_REQUEST', 'This invitation was already used');
+        if (newUser) {
+          await tx.user.create({ data: { id: userId, email: invitation.email, ...newUser } });
+        }
+        const member = await tx.membership.findUnique({
+          where: { organizationId_userId: { organizationId: invitation.organizationId, userId } },
+        });
+        if (member) throw new AppError('CONFLICT', 'You are already a member of this organization');
+        await tx.membership.create({
+          data: {
+            id: newId(),
+            organizationId: invitation.organizationId,
+            userId,
+            role: invitation.role,
+          },
+        });
+        await recordAudit(tx, {
+          organizationId: invitation.organizationId,
+          actorUserId: userId,
+          action: 'invitation.accept',
+          entityType: 'invitation',
+          entityId: invitation.id,
+          details: { role: invitation.role, newAccount: newUser !== null },
+          ip,
+        });
+        const { token } = await this.createRefreshToken(tx, { ...ctx, familyId: newId() });
+        return token;
+      },
+    );
+    return { refreshToken, response: await this.withAccessToken(ctx) };
   }
 
   // ───────────── helpers ─────────────
