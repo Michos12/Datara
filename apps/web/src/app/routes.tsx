@@ -2,7 +2,9 @@ import { useTranslation } from 'react-i18next';
 import { isRouteErrorResponse, useRouteError, type RouteObject } from 'react-router';
 import { Card, PageHeader } from '../components/PageHeader';
 import { RedirectIfAuthenticated, RequireAuth } from '../features/auth/guards';
+import { InvitationPage } from '../features/auth/InvitationPage';
 import { LoginPage } from '../features/auth/LoginPage';
+import { ForgotPasswordPage, ResetPasswordPage } from '../features/auth/PasswordPages';
 import { SignupPage } from '../features/auth/SignupPage';
 import { CustomerProfilePage } from '../features/customers/CustomerProfilePage';
 import { CustomersPage } from '../features/customers/CustomersPage';
@@ -10,6 +12,7 @@ import { ImportsPage } from '../features/imports/ImportsPage';
 import { MethodologyPage } from '../features/methodology/MethodologyPage';
 import { ComingSoonPage } from '../features/placeholder/ComingSoonPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
+import { TeamPage } from '../features/team/TeamPage';
 import { AppShell } from './AppShell';
 import { NAV_ITEMS } from './navigation';
 
@@ -46,6 +49,8 @@ const PAGES_BUILT = new Set([
   '/analytics',
   '/value',
   '/recommendations',
+  '/team',
+  '/reports',
 ]);
 
 export const routes: RouteObject[] = [
@@ -66,6 +71,17 @@ export const routes: RouteObject[] = [
     ),
   },
   {
+    path: '/forgot-password',
+    element: (
+      <RedirectIfAuthenticated>
+        <ForgotPasswordPage />
+      </RedirectIfAuthenticated>
+    ),
+  },
+  // Reachable signed in or out: a reset or invitation link may be opened in any state.
+  { path: '/reset-password', element: <ResetPasswordPage /> },
+  { path: '/invitation', element: <InvitationPage /> },
+  {
     path: '/',
     element: (
       <RequireAuth>
@@ -85,6 +101,12 @@ export const routes: RouteObject[] = [
               })),
           },
           { path: 'settings', element: <SettingsPage /> },
+          { path: 'team', element: <TeamPage /> },
+          {
+            path: 'reports',
+            lazy: () =>
+              import('../features/reports/ReportsPage').then((m) => ({ Component: m.ReportsPage })),
+          },
           { path: 'customers', element: <CustomersPage /> },
           { path: 'customers/:id', element: <CustomerProfilePage /> },
           { path: 'imports', element: <ImportsPage /> },

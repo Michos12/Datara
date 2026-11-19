@@ -32,6 +32,11 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(logLevels).default('info'),
   /** Directory for uploads and generated files; a shared volume in Docker. */
   STORAGE_DIR: z.string().min(1).default('storage'),
+  /** Outgoing mail server, e.g. smtp://mailpit:1025. Unset: emails are only logged (dev). */
+  SMTP_URL: z.url({ protocol: /^smtps?$/ }).optional(),
+  MAIL_FROM: z.string().min(3).default('Customer Insights <no-reply@customer-insights.local>'),
+  /** Public URL of the web app, for links in emails. */
+  APP_URL: z.url().default('http://localhost:5173'),
 });
 
 export interface Config {
@@ -50,6 +55,8 @@ export interface Config {
   corsOrigins: string[];
   logLevel: (typeof logLevels)[number];
   storageDir: string;
+  mail: { smtpUrl: string | null; from: string };
+  appUrl: string;
 }
 
 export class ConfigError extends Error {
@@ -89,5 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsOrigins: e.CORS_ORIGINS,
     logLevel: e.LOG_LEVEL,
     storageDir: e.STORAGE_DIR,
+    mail: { smtpUrl: e.SMTP_URL ?? null, from: e.MAIL_FROM },
+    appUrl: e.APP_URL.replace(/\/+$/, ''),
   };
 }

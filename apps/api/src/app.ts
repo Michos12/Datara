@@ -9,6 +9,10 @@ import { errorHandler, notFoundHandler } from './core/errors.js';
 import type { Logger } from './core/logger.js';
 import { AnalyticsClient } from './infra/analytics-client.js';
 import type { Database } from './infra/database.js';
+import { createMailer, type Mailer } from './infra/mailer.js';
+import { TeamService } from './modules/organizations/team.service.js';
+import { reportRouter } from './modules/reports/report.routes.js';
+import { ReportService } from './modules/reports/report.service.js';
 import { FileStorage } from './infra/storage.js';
 import { analyticsRouter } from './modules/analytics/analytics.routes.js';
 import { AnalyticsService } from './modules/analytics/analytics.service.js';
@@ -48,6 +52,8 @@ export interface AppDeps {
   storage?: FileStorage;
   /** Client for the internal analytics service; defaults to config.analytics. */
   analytics?: AnalyticsClient;
+  /** Outgoing email; defaults to SMTP from config (or a log-only mailer). */
+  mailer?: Mailer;
 }
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -83,7 +89,12 @@ export function createApp(deps: AppDeps): Express {
 
   if (deps.database) {
     const tokens = new TokenService(config.auth, deps.now);
-    const auth = new AuthService(deps.database, tokens, deps.now);
+    const mail = {
+      mailer: deps.mailer ?? createMailer(config, logger),
+      appUrl: config.appUrl,
+      logger,
+    };
+    const auth = new AuthService(deps.database, tokens, deps.now, mail);
     v1.use(
       authRouter({
         auth,
@@ -95,11 +106,18 @@ export function createApp(deps: AppDeps): Express {
         rateLimits: deps.rateLimits ?? DEFAULT_AUTH_RATE_LIMITS,
       }),
     );
-    v1.use(organizationRouter({ organizations: new OrganizationService(deps.database), tokens }));
+    v1.use(
+      organizationRouter({
+        organizations: new OrganizationService(deps.database),
+        team: new TeamService(deps.database, mail, deps.now),
+        tokens,
+      }),
+    );
+    const orders = new OrderService(deps.database, deps.now);
     v1.use(
       customerDataRouter({
         customers: new CustomerService(deps.database, deps.now),
-        orders: new OrderService(deps.database, deps.now),
+        orders,
         tokens,
       }),
     );
@@ -112,22 +130,24 @@ export function createApp(deps: AppDeps): Express {
     const analyticsClient =
       deps.analytics ?? new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);
     const segments = new SegmentService(deps.database, analyticsClient);
-    v1.use(
-      analyticsRouter({
-        analytics: new AnalyticsService(deps.database, analyticsClient, deps.now),
-        behavior: new BehaviorService(deps.database, analyticsClient, segments),
-        value: new ValueService(deps.database, analyticsClient),
-        tokens,
-      }),
-    );
+    const analytics = new AnalyticsService(deps.database, analyticsClient, deps.now);
+    const behavior = new BehaviorService(deps.database, analyticsClient, segments);
+    const value = new ValueService(deps.database, analyticsClient);
+    v1.use(analyticsRouter({ analytics, behavior, value, tokens }));
     v1.use(segmentRouter({ segments, tokens }));
-    v1.use(
-      recommendationRouter({
-        recommendations: new RecommendationService(deps.database, analyticsClient, deps.now),
-        db: deps.database,
-        tokens,
-      }),
-    );
+    const recommendations = new RecommendationService(deps.database, analyticsClient, deps.now);
+    v1.use(recommendationRouter({ recommendations, db: deps.database, tokens }));
+    const reports = new ReportService({
+      db: deps.database,
+      analytics,
+      behavior,
+      value,
+      segments,
+      recommendations,
+      storage,
+      ...(deps.now ? { now: deps.now } : {}),
+    });
+    v1.use(reportRouter({ reports, orders, db: deps.database, storage, tokens }));
     v1.use(exportRouter({ db: deps.database, tokens, ...(deps.now ? { now: deps.now } : {}) }));
   }
 

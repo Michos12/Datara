@@ -6,8 +6,15 @@ import { inject } from 'vitest';
 import { createApp } from '../../src/app.js';
 import { newId } from '../../src/core/ids.js';
 import type { AnalyticsClient } from '../../src/infra/analytics-client.js';
+import { MemoryMailer } from '../../src/infra/mailer.js';
+import { AnalyticsService } from '../../src/modules/analytics/analytics.service.js';
+import { BehaviorService } from '../../src/modules/analytics/behavior.service.js';
+import { ValueService } from '../../src/modules/analytics/value.service.js';
+import { RecommendationService } from '../../src/modules/recommendations/recommendation.service.js';
+import { PDF_REPORT_JOB, ReportService } from '../../src/modules/reports/report.service.js';
+import { SegmentService } from '../../src/modules/segments/segment.service.js';
 import { Database } from '../../src/infra/database.js';
-import { dispatchJob, NODE_JOB_PREFIXES } from '../../src/infra/job-dispatch.js';
+import { dispatchJob } from '../../src/infra/job-dispatch.js';
 import { claimJob, completeJob, failJob } from '../../src/infra/job-queue.js';
 import { FileStorage } from '../../src/infra/storage.js';
 import { importJobHandlers } from '../../src/modules/imports/import.jobs.js';
@@ -30,8 +37,11 @@ export interface TestContext {
   owner: PrismaClient;
   /** Moves the injectable clock forward. */
   advance(ms: number): void;
-  /** Runs queued Node jobs (imports) until none are left, like the worker would. */
-  runJobs(): Promise<number>;
+  /** Runs queued Node jobs (imports, PDF reports) until none are left, like the worker would. */
+  runJobs(prefixes?: string[]): Promise<number>;
+  /** Emails the app sent. */
+  mailer: MemoryMailer;
+  storage: FileStorage;
   close(): Promise<void>;
 }
 
@@ -44,7 +54,25 @@ export function createTestContext(
   const storage = new FileStorage(inject('storageDir'));
   let offset = 0;
   const now = () => Date.now() + offset;
-  const handlers = importJobHandlers({ db, storage, now });
+  const mailer = new MemoryMailer();
+  const handlers: Record<string, Parameters<typeof dispatchJob>[1][string]> = {
+    ...importJobHandlers({ db, storage, now }),
+  };
+  if (options.analytics) {
+    const client = options.analytics;
+    const segments = new SegmentService(db, client);
+    const reports = new ReportService({
+      db,
+      analytics: new AnalyticsService(db, client, now),
+      behavior: new BehaviorService(db, client, segments),
+      value: new ValueService(db, client),
+      segments,
+      recommendations: new RecommendationService(db, client, now),
+      storage,
+      now,
+    });
+    handlers[PDF_REPORT_JOB] = (job) => reports.generatePdf(job);
+  }
   const silent = pino({ level: 'silent' });
   const app = createApp({
     config: testConfig({ databaseUrl: inject('databaseUrl') }),
@@ -59,18 +87,23 @@ export function createTestContext(
     now,
     storage,
     ...(options.analytics ? { analytics: options.analytics } : {}),
+    mailer,
   });
   return {
     app,
     db,
     owner,
+    mailer,
+    storage,
     advance: (ms) => {
       offset += ms;
     },
-    runJobs: async () => {
+    // Test files run in parallel against one queue: each claims only the job types it asks
+    // for (imports by default), so no file steals another's jobs.
+    runJobs: async (prefixes = ['import.']) => {
       let processed = 0;
       for (;;) {
-        const job = await claimJob(prisma, 'test-worker', NODE_JOB_PREFIXES);
+        const job = await claimJob(prisma, 'test-worker', prefixes);
         if (!job) return processed;
         try {
           await dispatchJob(job, handlers, silent);

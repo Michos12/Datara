@@ -1,4 +1,13 @@
-import { loginRequestSchema, signupRequestSchema, type Session } from '@ci/contracts';
+import {
+  acceptInvitationRequestSchema,
+  forgotPasswordRequestSchema,
+  invitationPreviewRequestSchema,
+  loginRequestSchema,
+  resetPasswordRequestSchema,
+  signupRequestSchema,
+  switchOrganizationRequestSchema,
+  type Session,
+} from '@ci/contracts';
 import { Router } from 'express';
 import { AppError } from '../../core/errors.js';
 import { clientIp, getAuth } from '../../core/request-context.js';
@@ -60,6 +69,47 @@ export function authRouter(deps: {
     await auth.logout(readRefreshCookie(req), clientIp(req));
     clearSessionCookies(res, cookies);
     res.status(204).end();
+  });
+
+  /** Starts a session in another organization of the same user (AUTH-05). */
+  router.post('/auth/switch-organization', requireAuth(tokens), async (req, res) => {
+    assertCsrf(req);
+    const body = switchOrganizationRequestSchema.parse(req.body);
+    const { response, refreshToken } = await auth.switchOrganization(
+      getAuth(req),
+      body.organizationId,
+      readRefreshCookie(req),
+      clientIp(req),
+    );
+    setSessionCookies(res, refreshToken, cookies);
+    res.json(response);
+  });
+
+  /** Always 202: the answer never reveals whether the email has an account (AUTH-06). */
+  router.post('/auth/password/forgot', limit.auth, async (req, res) => {
+    const body = forgotPasswordRequestSchema.parse(req.body);
+    await auth.forgotPassword(body.email);
+    res.status(202).json({ status: 'accepted' });
+  });
+
+  router.post('/auth/password/reset', limit.auth, async (req, res) => {
+    const body = resetPasswordRequestSchema.parse(req.body);
+    await auth.resetPassword(body.token, body.newPassword, clientIp(req));
+    clearSessionCookies(res, cookies);
+    res.status(204).end();
+  });
+
+  /** Tokens travel in the body, never in URLs, so they stay out of access logs. */
+  router.post('/invitations/preview', limit.auth, async (req, res) => {
+    const body = invitationPreviewRequestSchema.parse(req.body);
+    res.json(await auth.previewInvitation(body.token));
+  });
+
+  router.post('/invitations/accept', limit.auth, async (req, res) => {
+    const body = acceptInvitationRequestSchema.parse(req.body);
+    const { response, refreshToken } = await auth.acceptInvitation(body, clientIp(req));
+    setSessionCookies(res, refreshToken, cookies);
+    res.json(response);
   });
 
   router.get('/auth/me', requireAuth(tokens), async (req, res) => {

@@ -60,6 +60,9 @@ export function LoginPage() {
         <Button type="submit" disabled={pending || !email || !password}>
           {pending ? t('auth.signingIn') : t('auth.signIn')}
         </Button>
+        <Link to="/forgot-password" className="text-center text-sm text-accent hover:underline">
+          {t('auth.forgot')}
+        </Link>
       </form>
     </AuthLayout>
   );

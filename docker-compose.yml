@@ -9,6 +9,9 @@ x-db-env: &db-env
   ANALYTICS_SERVICE_TOKEN: ${ANALYTICS_SERVICE_TOKEN:-change-me-service-token}
   ANALYTICS_URL: http://analytics:8000
   JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-secret-of-48-chars-min}
+  # Emails (invitations, password resets) go to Mailpit: open http://localhost:8025
+  SMTP_URL: smtp://mailpit:1025
+  APP_URL: http://localhost:5173
 
 services:
   db:
@@ -121,6 +124,13 @@ services:
       watch:
         - { action: sync+restart, path: ./services/analytics/insights, target: /app/insights }
         - { action: rebuild, path: ./services/analytics/uv.lock }
+
+  # Local mail catcher: every email the app sends shows up at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - '127.0.0.1:8025:8025'
+    restart: unless-stopped
 
   web:
     build: { context: ., dockerfile: apps/web/Dockerfile, target: dev }

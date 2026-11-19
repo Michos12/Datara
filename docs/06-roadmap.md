@@ -314,6 +314,22 @@ gantt
 
 ## M8 — Reports, exports and collaboration (≈2 weeks)
 
+> **Status (2026-11-18): implemented.** Notes on what changed from the plan:
+>
+> - PDF reports are rendered by PDFKit in the Node worker (`report.pdf` job), not by a headless
+>   browser or WeasyPrint: no browser or system fonts in the images. Charts are simple drawn bars;
+>   text is mapped to the PDF fonts' Latin-1 encoding.
+> - Emails go through a `Mailer` interface (nodemailer SMTP; Mailpit in docker compose at
+>   http://localhost:8025). Without `SMTP_URL` emails are dropped with a log line, never logged
+>   with their links. Sending is inline; a failed invitation email is reported (`emailSent: false`).
+> - Invitations keep row-level security: public acceptance sets `app.invitation_token` to the
+>   token hash, which makes exactly that row visible. Password-reset tokens, like refresh tokens,
+>   are user-level and not RLS-protected.
+> - Team management (members, roles, invitations) is its own page (`/team`); owners stay
+>   protected from admins and an organization always keeps one owner.
+> - Comparison parameters are flat (`aStart`, `aEnd`, `bStart`, `bEnd`) and there is a CSV
+>   version; an orders export was added next to the customers one.
+
 **Functional requirements:** RPT-02, 03, 04, 05; ANA-08 complete; AUTH-04, 05, 06 (invitations, org switching, password reset).
 
 **Technical implementation**

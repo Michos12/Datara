@@ -159,7 +159,10 @@ describe('recommendations inbox', () => {
     const csv = await api.get(`/recommendations/${id}/customers.csv`);
     expect(csv.status).toBe(200);
     expect(csv.headers['content-type']).toContain('text/csv');
-    const lines = csv.text.replace(/^﻿/, '').trim().split('\n');
+    const lines = csv.text
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .split('\n');
     expect(lines[0]).toContain('net_last_12_months_USD');
     expect(lines).toHaveLength(4);
     expect(lines[1]).toContain("'=Ben"); // formulas are neutralised

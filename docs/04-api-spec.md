@@ -112,6 +112,13 @@ Money is returned as integer `…Cents` fields plus the `currency` in `meta`.
 | POST   | `/auth/password/reset`      | public | `{ token, newPassword }` → `204`. (P1)                                                                                                              |
 | GET    | `/auth/me`                  | any    | Current user, active organization, role.                                                                                                            |
 
+### 2.2.1 Collaboration details (M8)
+
+- `POST /auth/switch-organization` needs the CSRF header and refresh cookie; it revokes the current refresh-token family and starts a new one for the target organization (403 if not a member).
+- `POST /auth/password/forgot` always answers `202`. Real accounts get a single-use link valid for 60 minutes; requesting again invalidates older links. `POST /auth/password/reset` → `204`, revokes every session of the user; invalid, used or expired tokens → `400`.
+- Tokens are emailed in the URL fragment (`/reset-password#token=…`, `/invitation#token=…`) and sent back in request bodies, so they never reach access logs or Referer headers.
+- `POST /invitations/preview { token }` → `{ organizationName, email, role, accountExists, expiresAt }`. `POST /invitations/accept`: an existing account sends its `password`; a new one sends `fullName` and a new `password`. Either way the response is a session in the invited organization (`200`, like login).
+
 ### 2.3 Organization & members
 
 | Method | Path                            | Roles  | Description                                                                                                                                     |
@@ -225,15 +232,19 @@ All accept the common parameters in §1.7 where meaningful, and return the envel
 
 ### 2.11 Reports & exports
 
-| Method | Path                             | Roles | Description                                                                                                |
-| ------ | -------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| GET    | `/exports/customers.csv`         | OAN   | Streamed export; accepts the `/customers` filters. Audited.                                                |
-| GET    | `/exports/orders.csv`            | OAN   | Streamed; accepts `/orders` filters. Audited.                                                              |
-| GET    | `/exports/kpis.csv`              | OANV  | KPI values for a period (+ comparison).                                                                    |
-| GET    | `/exports/analytics/:metric.csv` | OANV  | Data behind any analytics chart (same params as the JSON endpoint).                                        |
-| GET    | `/reports/comparison`            | OANV  | `periodA[start,end]`, `periodB[start,end]`, `segment?` → KPI list with A, B, absolute and relative change. |
-| POST   | `/reports/pdf`                   | OAN   | `{ start, end, segment?, sections[] }` → `202 { jobId }` (P2).                                             |
-| GET    | `/reports/pdf/:jobId`            | OAN   | Status or file download (P2).                                                                              |
+| Method | Path                             | Roles | Description                                                                                                                                                                                                       |
+| ------ | -------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/exports/customers.csv`         | OAN   | Streamed export; accepts the `/customers` filters. Audited.                                                                                                                                                       |
+| GET    | `/exports/orders.csv`            | OAN   | Streamed; accepts `/orders` filters. Audited.                                                                                                                                                                     |
+| GET    | `/exports/kpis.csv`              | OANV  | KPI values for a period (+ comparison), with metric names. Same parameters as `/analytics/overview`.                                                                                                              |
+| GET    | `/exports/analytics/:metric.csv` | OANV  | Data behind any analytics chart (same params as the JSON endpoint). `metric` ∈ overview, retention, churn, cohorts, frequency, clv, journey, engagement; value-page charts use a long `chart,x,value,unit` table. |
+| GET    | `/reports/comparison`            | OANV  | `aStart`, `aEnd`, `bStart`, `bEnd`, `segment?` → rows with `a`, `b`, `difference` (B − A; points for ratios) and `relativeChange` (null for ratios or when A is 0).                                               |
+| GET    | `/exports/comparison.csv`        | OANV  | The comparison as CSV.                                                                                                                                                                                            |
+| POST   | `/reports/pdf`                   | OAN   | `{ start, end, segment?, sections[] }` (overview, segments, retention, recommendations) → `202 { jobId }`. Audited.                                                                                               |
+| GET    | `/reports/pdf/:jobId`            | OAN   | `{ status, fileName, error }`.                                                                                                                                                                                    |
+| GET    | `/reports/pdf/:jobId/file`       | OAN   | The PDF once `status` is `succeeded`, else 404.                                                                                                                                                                   |
+
+CSV conventions: UTF-8 with BOM, comma-separated, CRLF rows; money in major units with the currency in the column name; ratios as fractions; cells starting with `= + - @` are prefixed with `'`; empty cells mean "not available" (never 0).
 
 ### 2.12 Jobs
 

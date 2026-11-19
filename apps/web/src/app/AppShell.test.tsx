@@ -5,29 +5,25 @@ import { makeSession, mockApi, READY, renderApp } from '../test/fixtures';
 const signedIn = { status: 'authenticated' as const, session: makeSession() };
 
 describe('AppShell', () => {
-  it('renders the main navigation with the active page marked', () => {
+  it('renders the main navigation with the active page marked', async () => {
     mockApi(READY);
-    renderApp('/reports', signedIn);
+    renderApp('/team', signedIn);
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(within(nav).getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    expect(within(nav).getByRole('link', { name: 'Reports' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    expect(screen.getByRole('heading', { name: 'Reports' })).toBeInTheDocument();
-    expect(screen.getByText('Planned for M8')).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: 'Team' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('heading', { name: 'Team' })).toBeInTheDocument();
   });
 
   it('shows the user, organization and role', () => {
     mockApi(READY);
-    renderApp('/reports', signedIn);
+    renderApp('/team', signedIn);
     expect(screen.getByText('Ana Pérez')).toBeInTheDocument();
     expect(screen.getByText('Café Central · Owner')).toBeInTheDocument();
   });
 
   it('shows healthy status when all services are up', async () => {
     mockApi(READY);
-    renderApp('/reports', signedIn);
+    renderApp('/team', signedIn);
     expect(await screen.findByText('All systems operational')).toBeInTheDocument();
   });
 
@@ -38,7 +34,7 @@ describe('AppShell', () => {
         body: { status: 'ready', checks: { database: 'up', migrations: 'up', analytics: 'down' } },
       }),
     });
-    renderApp('/reports', signedIn);
+    renderApp('/team', signedIn);
     expect(await screen.findByText('Analytics unavailable')).toBeInTheDocument();
   });
 
@@ -52,7 +48,7 @@ describe('AppShell', () => {
         },
       }),
     });
-    renderApp('/reports', signedIn);
+    renderApp('/team', signedIn);
     expect(await screen.findByText('API not ready')).toBeInTheDocument();
   });
 
