@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
+import { axeViolations } from '../../test/axe';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
 
 const anonymous = { status: 'anonymous' as const };
@@ -60,6 +61,7 @@ describe('Team page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send invitation' }));
     expect(await screen.findByText('Invitation sent to cleo@example.com.')).toBeInTheDocument();
     expect(sent).toEqual({ email: 'cleo@example.com', role: 'VIEWER' });
+    expect(await axeViolations()).toEqual([]);
   });
 
   it('does not let admins create or edit owners', async () => {

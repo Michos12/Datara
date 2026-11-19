@@ -2,7 +2,7 @@ import type { Logger } from '../core/logger.js';
 import type { ClaimedJob } from './job-queue.js';
 
 /** Job types handled by the Node worker. `analytics.*` jobs belong to the Python worker. */
-export const NODE_JOB_PREFIXES = ['import.', 'export.', 'report.'];
+export const NODE_JOB_PREFIXES = ['import.', 'export.', 'report.', 'privacy.', 'maintenance.'];
 
 export type JobHandler = (job: ClaimedJob, ctx: { logger: Logger }) => Promise<void>;
 export type HandlerRegistry = Record<string, JobHandler>;

@@ -23,7 +23,14 @@ from insights.db import Database
 from insights.definitions import DEFINITION_VERSIONS
 from insights.ids import uuid7
 from insights.logging import get_logger
-from insights.metrics.core import Ratio, customer_metrics, lifecycle_counts, period_kpis
+from insights.metrics.core import (
+    PurchaseDays,
+    Ratio,
+    customer_metrics,
+    first_purchase,
+    lifecycle_counts,
+    period_kpis,
+)
 from insights.metrics.engagement import engagement_scores
 from insights.metrics.rfm import rfm
 from insights.periods import Period, add_months, buckets, today_in
@@ -37,6 +44,7 @@ log = get_logger("insights.worker.recompute")
 RECOMPUTE_JOB = "analytics.recompute"
 TREND_MONTHS = 24
 KEEP_RUNS = 7
+SNAPSHOT_MONTHS = 24
 NIGHTLY_HOUR = 2
 BATCH = 1000
 
@@ -82,9 +90,13 @@ def period_metric_rows(data: OrgData, today: date) -> list[dict[str, Any]]:
     start = add_months(today.replace(day=1), -(TREND_MONTHS - 1))
     window = Period(start, add_months(today.replace(day=1), 1))
     rows: list[dict[str, Any]] = []
+    prepared = PurchaseDays.build(data.purchases)
+    first = first_purchase(data.purchases)
     for month in buckets(window, "month"):
         as_of = min(month.last_day, today)
-        kpis = period_kpis(data.purchases, data.customers, month, data.settings, as_of)
+        kpis = period_kpis(
+            data.purchases, data.customers, month, data.settings, as_of, prepared, first
+        )
         for key in PERIOD_METRIC_KEYS:
             raw = kpis[key]
             if isinstance(raw, Ratio):
@@ -193,7 +205,10 @@ def recompute(job: Job, db: Database) -> None:
                 " data_quality = %s, stats = %s WHERE id = %s",
                 (Jsonb(quality), Jsonb(stats), run_id),
             )
-            _prune(conn, org)
+            stats["pruned"] = _prune(conn, org)
+            conn.execute(
+                "UPDATE analytics_runs SET stats = %s WHERE id = %s", (Jsonb(stats), run_id)
+            )
             schedule_recompute(conn, org, next_nightly(data.timezone), "nightly")
         log.info("recompute succeeded", organization_id=str(org), run_id=str(run_id), **stats)
     except Exception as exc:
@@ -255,16 +270,51 @@ def _write_period_metrics(
         )  # fmt: skip
 
 
-def _prune(conn: psycopg.Connection, org: UUID) -> None:
-    """Keeps the latest KEEP_RUNS succeeded runs (longer retention policy: M9)."""
-    old = conn.execute(
-        "SELECT id FROM analytics_runs WHERE organization_id = %s ORDER BY started_at DESC"
-        " OFFSET %s",
-        (org, KEEP_RUNS),
+def runs_to_keep(runs: list[tuple[UUID, str, datetime]], now: datetime) -> set[UUID]:
+    """Snapshot retention (OPEN-11): the latest KEEP_RUNS succeeded runs, plus the last succeeded
+    run of each month for SNAPSHOT_MONTHS months. Running and failed runs are kept for a day so
+    their status can be seen; anything else goes. `runs` is (id, status, started_at)."""
+    keep: set[UUID] = set()
+    succeeded = sorted((r for r in runs if r[1] == "SUCCEEDED"), key=lambda r: r[2], reverse=True)
+    keep.update(r[0] for r in succeeded[:KEEP_RUNS])
+    horizon = now - timedelta(days=SNAPSHOT_MONTHS * 31)
+    seen_months: set[tuple[int, int]] = set()
+    for run_id, _status, started in succeeded:
+        month = (started.year, started.month)
+        if started >= horizon and month not in seen_months:
+            seen_months.add(month)
+            keep.add(run_id)
+    keep.update(r[0] for r in runs if r[1] != "SUCCEEDED" and r[2] >= now - timedelta(days=1))
+    return keep
+
+
+def _prune(conn: psycopg.Connection, org: UUID, now: datetime | None = None) -> dict[str, int]:
+    """Retention for this organization's data, inside its RLS context (docs §12)."""
+    moment = now or datetime.now(UTC)
+    runs = conn.execute(
+        "SELECT id, status::text, started_at FROM analytics_runs WHERE organization_id = %s",
+        (org,),
     ).fetchall()
-    ids = [row[0] for row in old]
-    if not ids:
-        return
-    for table in ("analytics_customer_metrics", "analytics_period_metrics"):
-        conn.execute(f"DELETE FROM {table} WHERE run_id = ANY(%s)", (ids,))  # noqa: S608
-    conn.execute("DELETE FROM analytics_runs WHERE id = ANY(%s)", (ids,))
+    keep = runs_to_keep([(r[0], r[1], r[2]) for r in runs], moment)
+    ids = [r[0] for r in runs if r[0] not in keep]
+    if ids:
+        for table in ("analytics_customer_metrics", "analytics_period_metrics"):
+            conn.execute(f"DELETE FROM {table} WHERE run_id = ANY(%s)", (ids,))  # noqa: S608
+        conn.execute("DELETE FROM analytics_runs WHERE id = ANY(%s)", (ids,))
+    # The RLS policy only lets entries older than 12 months be deleted at all.
+    audit = conn.execute(
+        "DELETE FROM audit_logs WHERE organization_id = %s"
+        " AND created_at < now() - interval '12 months'",
+        (org,),
+    ).rowcount
+    invitations = conn.execute(
+        "DELETE FROM invitations WHERE organization_id = %s"
+        " AND coalesce(accepted_at, revoked_at, expires_at) < now() - interval '30 days'",
+        (org,),
+    ).rowcount
+    cache = conn.execute(
+        "DELETE FROM analytics_query_cache WHERE organization_id = %s"
+        " AND created_at < now() - interval '30 days'",
+        (org,),
+    ).rowcount
+    return {"runs": len(ids), "auditLogs": audit, "invitations": invitations, "queryCache": cache}

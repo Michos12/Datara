@@ -1,0 +1,121 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec). Deploy: New → Blueprint → this repo.
+# See docs/08-deployment.md for the checklist (secrets to fill in, email, first sign-in, backups).
+#
+# Topology: only the web service is public. Its nginx serves the SPA and proxies /api to the
+# private API service, so the browser sees one origin (first-party cookies, no CORS). The API
+# runs the background-job loop in-process because uploads and reports live on its disk. The
+# analytics service and its worker are private and reach Postgres over Render's private network.
+
+databases:
+  - name: customer-insights-db
+    databaseName: customer_insights
+    user: insights_owner
+    plan: basic-256mb
+    postgresMajorVersion: '17'
+    # Private network only: no external connections.
+    ipAllowList: []
+
+envVarGroups:
+  - name: customer-insights-shared
+    envVars:
+      # Runtime role (subject to row-level security), created by `npm run db:deploy`.
+      - key: APP_DB_USER
+        value: app_user
+      - key: APP_DB_PASSWORD
+        generateValue: true
+      - key: ANALYTICS_SERVICE_TOKEN
+        generateValue: true
+
+services:
+  - type: web
+    name: customer-insights-web
+    runtime: docker
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: API_UPSTREAM
+        fromService:
+          type: pserv
+          name: customer-insights-api
+          property: hostport
+
+  - type: pserv
+    name: customer-insights-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: starter
+    # Creates/updates the runtime role and applies migrations before each release.
+    preDeployCommand: npm run db:deploy
+    disk:
+      name: storage
+      mountPath: /data/storage
+      sizeGB: 5
+    envVars:
+      - fromGroup: customer-insights-shared
+      - key: DIRECT_DATABASE_URL
+        fromDatabase:
+          name: customer-insights-db
+          property: connectionString
+      - key: ANALYTICS_URL
+        fromService:
+          type: pserv
+          name: customer-insights-analytics
+          property: hostport
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: '10000'
+      - key: JWT_SECRET
+        generateValue: true
+      - key: METRICS_TOKEN
+        generateValue: true
+      - key: STORAGE_DIR
+        value: /data/storage
+      - key: WORKER_IN_PROCESS
+        value: 'true'
+      # Render's proxy and the web service's nginx.
+      - key: TRUST_PROXY
+        value: '2'
+      - key: LOG_LEVEL
+        value: info
+      # Fill in after the first deploy (docs/08-deployment.md).
+      - key: APP_URL
+        sync: false
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+  - type: pserv
+    name: customer-insights-analytics
+    runtime: docker
+    dockerfilePath: ./services/analytics/Dockerfile
+    dockerContext: ./services/analytics
+    plan: starter
+    envVars:
+      - fromGroup: customer-insights-shared
+      - key: DIRECT_DATABASE_URL
+        fromDatabase:
+          name: customer-insights-db
+          property: connectionString
+      - key: LOG_JSON
+        value: 'true'
+
+  - type: worker
+    name: customer-insights-analytics-worker
+    runtime: docker
+    dockerfilePath: ./services/analytics/Dockerfile
+    dockerContext: ./services/analytics
+    dockerCommand: python -m insights.worker
+    plan: starter
+    envVars:
+      - fromGroup: customer-insights-shared
+      - key: DIRECT_DATABASE_URL
+        fromDatabase:
+          name: customer-insights-db
+          property: connectionString
+      - key: LOG_JSON
+        value: 'true'

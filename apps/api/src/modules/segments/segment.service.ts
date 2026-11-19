@@ -59,6 +59,12 @@ interface SummaryRow {
   avg_clv: number | null;
 }
 
+/** Per-run segment aggregates: snapshots are immutable, so entries never go stale. */
+const SNAPSHOT_AGGREGATES = new Map<
+  string,
+  [SummaryRow[], { r: number; f: number; n: number }[]]
+>();
+
 export class SegmentService {
   constructor(
     private readonly db: Database,
@@ -181,21 +187,32 @@ export class SegmentService {
         };
       }
 
-      const [rows, cells] = await Promise.all([
-        tx.$queryRaw<SummaryRow[]>`
+      // A snapshot never changes, so its aggregates are cached per run (M9 load test: this
+      // scan of every customer's metrics dominated the segments endpoint under load).
+      const cached = SNAPSHOT_AGGREGATES.get(run.id);
+      const [rows, cells] =
+        cached ??
+        (await Promise.all([
+          tx.$queryRaw<SummaryRow[]>`
           SELECT segment_key, count(*)::int AS customers, sum(m_value_cents)::bigint AS revenue,
                  avg(recency_days)::float8 AS avg_recency, avg(f_value)::float8 AS avg_orders,
                  avg(m_value_cents)::float8 AS avg_spend, avg(historical_clv_cents)::float8 AS avg_clv
           FROM analytics_customer_metrics
           WHERE organization_id = ${auth.organizationId}::uuid AND run_id = ${run.id}::uuid
           GROUP BY segment_key`,
-        tx.$queryRaw<{ r: number; f: number; n: number }[]>`
+          tx.$queryRaw<{ r: number; f: number; n: number }[]>`
           SELECT r_score AS r, f_score AS f, count(*)::int AS n
           FROM analytics_customer_metrics
           WHERE organization_id = ${auth.organizationId}::uuid AND run_id = ${run.id}::uuid
             AND r_score IS NOT NULL
           GROUP BY 1, 2`,
-      ]);
+        ]));
+      if (!cached) {
+        SNAPSHOT_AGGREGATES.set(run.id, [rows, cells]);
+        if (SNAPSHOT_AGGREGATES.size > 200) {
+          SNAPSHOT_AGGREGATES.delete(SNAPSHOT_AGGREGATES.keys().next().value!);
+        }
+      }
 
       const scored = rows.filter((r) => r.segment_key !== null);
       const totalScored = scored.reduce((sum, r) => sum + r.customers, 0);

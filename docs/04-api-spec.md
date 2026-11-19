@@ -246,6 +246,16 @@ All accept the common parameters in §1.7 where meaningful, and return the envel
 
 CSV conventions: UTF-8 with BOM, comma-separated, CRLF rows; money in major units with the currency in the column name; ratios as fractions; cells starting with `= + - @` are prefixed with `'`; empty cells mean "not available" (never 0).
 
+### 2.11.1 Privacy and operations (M9)
+
+| Method | Path                       | Roles | Description                                                                                                                                                                                    |
+| ------ | -------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/customers/:id/erase`     | OA    | `{ mode: "anonymize" \| "delete" }` → 204. Anonymize clears personal fields and keeps orders; delete removes the record and its interactions (orders become guest orders). Audited by ID only. |
+| POST   | `/organization/export`     | O     | → `202 { jobId }`: ZIP of every table as CSV. One at a time (409).                                                                                                                             |
+| GET    | `/organization/export/:id` | O     | Status; `/file` downloads the ZIP once `succeeded`.                                                                                                                                            |
+| DELETE | `/organization`            | O     | `{ confirmName }` (the exact organization name) → 204. Deletes the organization and all its data; clears the session cookies.                                                                  |
+| GET    | `/metrics`                 | token | Prometheus metrics with `Authorization: Bearer $METRICS_TOKEN`; 404 when no token is configured, and blocked at the public edge.                                                               |
+
 ### 2.12 Jobs
 
 | Method | Path        | Roles | Description                                                    |

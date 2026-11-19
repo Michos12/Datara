@@ -19,6 +19,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     storageDir: 'storage-test',
     mail: { smtpUrl: null, from: 'Customer Insights <test@example.com>' },
     appUrl: 'http://app.test',
+    workerInProcess: false,
+    metricsToken: null,
+    databasePoolSize: 10,
     ...overrides,
   };
 }

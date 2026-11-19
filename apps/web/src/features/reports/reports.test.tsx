@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { axeViolations } from '../../test/axe';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
 import { formatDifference } from './ReportsPage';
 
@@ -49,6 +50,7 @@ describe('Reports page', () => {
     // Viewers get KPI and chart exports, not personal-data exports or PDFs.
     expect(screen.queryByRole('button', { name: 'Orders' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Generate PDF' })).not.toBeInTheDocument();
+    expect(await axeViolations()).toEqual([]);
   });
 
   it('generates a PDF in the background and offers the download', async () => {

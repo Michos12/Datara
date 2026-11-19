@@ -193,7 +193,7 @@ Simple aggregates (counts, sums, `date_trunc` buckets) **are** pushed into SQL, 
 | `web`        | node:22 build     | Vite dev server; in production, static files served by nginx/CDN.             |
 | `mailpit`    | axllent/mailpit   | Local email capture (P1).                                                     |
 
-Production: the same images; managed PostgreSQL; the analytics service on the private network only. Target decided in [OPEN-13].
+Production (M9): Render, from `render.yaml`. Only the web service is public. Its nginx serves the SPA and proxies `/api` to the private API service, which runs the Node job loop in-process (single disk for uploads and reports). The analytics service and worker are private, and Postgres is managed. The production images are non-root and the default build target; `docker-compose.prod.yml` runs them locally the same way. See [08-deployment.md](08-deployment.md).
 
 ## 10. Testing strategy (overview)
 

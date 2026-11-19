@@ -5,10 +5,11 @@ import { AnalyticsClient } from './infra/analytics-client.js';
 import { Database } from './infra/database.js';
 import { createHealthChecks } from './infra/health-checks.js';
 import { createPrismaClient } from './infra/prisma.js';
+import { startWorker } from './worker-loop.js';
 
 const config = loadConfig();
 const logger = createLogger(config);
-const prisma = createPrismaClient(config.databaseUrl);
+const prisma = createPrismaClient(config.databaseUrl, config.databasePoolSize);
 const analytics = new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);
 
 const app = createApp({
@@ -22,6 +23,9 @@ const app = createApp({
 const server = app.listen(config.port, () => {
   logger.info({ port: config.port }, 'API listening');
 });
+// Single-disk deployments (Render): uploads and generated files live on the API's disk, so
+// the job loop runs in this process instead of a separate worker service.
+const worker = config.workerInProcess ? startWorker({ config, logger, prisma }) : null;
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
@@ -29,6 +33,7 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   logger.info({ signal }, 'shutting down');
   server.close();
+  await worker?.stop();
   await prisma.$disconnect();
   process.exit(0);
 }

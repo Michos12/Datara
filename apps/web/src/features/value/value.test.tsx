@@ -2,6 +2,7 @@ import { DEFAULT_ENGAGEMENT_WEIGHTS, DEFAULT_SEGMENT_CONFIG } from '@ci/contract
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { axeViolations } from '../../test/axe';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
 import { lastMonths } from '../behavior/BehaviorPage';
 import { todayIn } from '../overview/periods';
@@ -209,6 +210,7 @@ describe('ValuePage', () => {
     const october = within(cohorts).getByRole('row', { name: /Oct 2026/ });
     expect(within(october).getByText('Not yet available')).toBeInTheDocument();
     expect(within(october).getByText('Fewer than 30 customers')).toBeInTheDocument();
+    expect(await axeViolations()).toEqual([]);
   });
 
   it('labels CLV as measured and hides horizons that have not passed', async () => {

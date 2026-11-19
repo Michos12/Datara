@@ -11,6 +11,9 @@ import { AnalyticsClient } from './infra/analytics-client.js';
 import type { Database } from './infra/database.js';
 import { createMailer, type Mailer } from './infra/mailer.js';
 import { TeamService } from './modules/organizations/team.service.js';
+import { privacyRouter } from './modules/privacy/privacy.routes.js';
+import { PrivacyService } from './modules/privacy/privacy.service.js';
+import { metricsRouter, requestMetrics } from './modules/health/metrics.routes.js';
 import { reportRouter } from './modules/reports/report.routes.js';
 import { ReportService } from './modules/reports/report.service.js';
 import { FileStorage } from './infra/storage.js';
@@ -79,6 +82,7 @@ export function createApp(deps: AppDeps): Express {
       autoLogging: { ignore: (req) => req.url === '/api/v1/health' },
     }),
   );
+  app.use(requestMetrics());
   app.use(helmet());
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
@@ -86,6 +90,7 @@ export function createApp(deps: AppDeps): Express {
 
   const v1 = express.Router();
   v1.use(healthRouter(deps.health, config.version));
+  v1.use(metricsRouter({ db: deps.database, token: config.metricsToken }));
 
   if (deps.database) {
     const tokens = new TokenService(config.auth, deps.now);
@@ -95,14 +100,15 @@ export function createApp(deps: AppDeps): Express {
       logger,
     };
     const auth = new AuthService(deps.database, tokens, deps.now, mail);
+    const cookieSettings = {
+      secure: config.auth.cookieSecure,
+      refreshTtlMs: tokens.refreshTokenTtlMs,
+    };
     v1.use(
       authRouter({
         auth,
         tokens,
-        cookies: {
-          secure: config.auth.cookieSecure,
-          refreshTtlMs: tokens.refreshTokenTtlMs,
-        },
+        cookies: cookieSettings,
         rateLimits: deps.rateLimits ?? DEFAULT_AUTH_RATE_LIMITS,
       }),
     );
@@ -126,6 +132,14 @@ export function createApp(deps: AppDeps): Express {
     );
     const storage = deps.storage ?? new FileStorage(config.storageDir);
     v1.use(importRouter({ imports: new ImportService(deps.database, storage), tokens }));
+    v1.use(
+      privacyRouter({
+        privacy: new PrivacyService(deps.database, storage, deps.now),
+        storage,
+        tokens,
+        cookies: cookieSettings,
+      }),
+    );
     v1.use(jobRouter({ db: deps.database, tokens }));
     const analyticsClient =
       deps.analytics ?? new AnalyticsClient(config.analytics.url, config.analytics.serviceToken);

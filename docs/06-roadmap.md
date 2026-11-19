@@ -349,6 +349,13 @@ gantt
 
 ## M9 — Hardening, performance and deployment (≈2 weeks)
 
+> **Status (2026-11-19): implemented, except the first production deploy**, which needs the owner's Render account (checklist in [08-deployment.md](08-deployment.md)). Results in [09-hardening-report.md](09-hardening-report.md). Notes:
+>
+> - Render (OPEN-13): `render.yaml` with a public nginx web service proxying `/api` to a private API, private analytics service and worker, managed Postgres. The API runs the job loop in-process because uploads and reports need its disk. Verified locally with the same images in `docker-compose.prod.yml`.
+> - The runtime role is created by `npm run db:deploy` (pre-deploy), and the services derive its URL from the owner URL, because managed Postgres runs no init scripts.
+> - A1 load test with 1.2M orders: recompute 91 s, CRUD p95 174 ms, dashboard p95 29 ms. Needed: hash joins for the analytics load, per-frame memoisation of purchase history, a configurable connection pool, a page-first customer list (spend sorts read the snapshot) and cached segment aggregates.
+> - Retention (§12 of the methodology), erasure, organization export and deletion; RLS coverage test; dependency audits (nodemailer upgraded); metrics endpoint and job-failure alerts; axe in the web tests and a contrast fix; a backup restore check script.
+
 **Technical implementation**
 
 - Load test (k6) at A1 volume; query tuning (EXPLAIN), index review; snapshot retention/pruning job.

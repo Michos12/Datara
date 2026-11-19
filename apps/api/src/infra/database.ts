@@ -76,17 +76,22 @@ export function isUniqueViolation(err: unknown): boolean {
  * Application code must still filter by organization explicitly (layer 1); RLS is the
  * independent backstop (layer 2).
  */
+/** Wait for a pooled connection, and how long one unit of work may hold it. */
+const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 };
+
 export class Database {
   constructor(private readonly prisma: PrismaClient) {}
 
   run<T>(context: DbContext, work: (tx: Tx) => Promise<T>): Promise<T> {
+    // Under load a request waits up to 10 s for a pooled connection instead of failing after
+    // Prisma's default 2 s (M9 load test).
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT set_config('app.org_id', ${context.organizationId ?? ''}, true),
                set_config('app.user_id', ${context.userId ?? ''}, true),
                set_config('app.invitation_token', ${context.invitationTokenHash ?? ''}, true)`;
       return work(tx);
-    });
+    }, TRANSACTION_OPTIONS);
   }
 
   disconnect(): Promise<void> {

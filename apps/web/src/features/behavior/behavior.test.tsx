@@ -2,6 +2,7 @@ import { DEFAULT_SEGMENT_CONFIG } from '@ci/contracts';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { axeViolations } from '../../test/axe';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
 
 function meta(metric: string, warnings: { code: string; message: string }[] = []) {
@@ -185,6 +186,7 @@ describe('BehaviorPage', () => {
     expect(within(october).getByText(/25\.0\s?%/)).toBeInTheDocument();
     expect(within(october).getByTitle(/Fewer than 30 customers/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
+    expect(await axeViolations()).toEqual([]);
   });
 
   it('explains churn, breaks it down by segment and lists churned customers', async () => {

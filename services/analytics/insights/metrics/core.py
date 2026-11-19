@@ -12,9 +12,12 @@ Dates are pandas Timestamps at midnight representing local business dates.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any
+from threading import Lock
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -30,8 +33,30 @@ def ts(day: date) -> pd.Timestamp:
     return pd.Timestamp(day)
 
 
+_MEMO: OrderedDict[tuple[str, int], tuple[pd.DataFrame, object]] = OrderedDict()
+_MEMO_LOCK = Lock()
+_MEMO_SIZE = 16
+
+
+def _memo[T](kind: str, frame: pd.DataFrame, build: Callable[[], T]) -> T:
+    """Per-frame memo for derived data that many periods and queries reuse. Frames are never
+    modified after loading; the entry keeps a reference to its frame so the id stays unique."""
+    key = (kind, id(frame))
+    with _MEMO_LOCK:
+        hit = _MEMO.get(key)
+        if hit is not None and hit[0] is frame:
+            _MEMO.move_to_end(key)
+            return cast(T, hit[1])
+    value = build()
+    with _MEMO_LOCK:
+        _MEMO[key] = (frame, value)
+        while len(_MEMO) > _MEMO_SIZE:
+            _MEMO.popitem(last=False)
+    return value
+
+
 def _identified(purchases: pd.DataFrame) -> pd.DataFrame:
-    return purchases[purchases["customer_id"].notna()]
+    return _memo("identified", purchases, lambda: purchases[purchases["customer_id"].notna()])
 
 
 def _in(purchases: pd.DataFrame, period: Period) -> pd.DataFrame:
@@ -46,7 +71,9 @@ def buyers(purchases: pd.DataFrame, period: Period) -> set[str]:
 
 def first_purchase(purchases: pd.DataFrame) -> pd.Series:
     """first(c): business date of each customer's first countable order ever."""
-    return _identified(purchases).groupby("customer_id")["day"].min()
+    return _memo(
+        "first", purchases, lambda: _identified(purchases).groupby("customer_id")["day"].min()
+    )
 
 
 def last_purchase_before(purchases: pd.DataFrame, end: date) -> pd.Series:
@@ -77,22 +104,55 @@ def retention(purchases: pd.DataFrame, period: Period) -> Ratio:
     return Ratio(len(retained), len(base))
 
 
-def churn(purchases: pd.DataFrame, period: Period, churn_days: int, as_of: date) -> Ratio:
+@dataclass(frozen=True)
+class PurchaseDays:
+    """Each customer's distinct purchase days in order, with the previous and next purchase
+    day. Building it is the expensive part of churn, reactivation and gap metrics (a sort and
+    grouped shifts over the whole history: seconds at 1M orders), so it is built once per
+    purchases frame and reused by every period and query on that frame."""
+
+    days: pd.DataFrame
+    """customer_id, day, prev_day and next_day (NaT at either end)"""
+
+    @staticmethod
+    def build(purchases: pd.DataFrame) -> PurchaseDays:
+        p = _identified(purchases)[["customer_id", "day"]].drop_duplicates()
+        p = p.sort_values(["customer_id", "day"]).reset_index(drop=True)
+        grouped = p.groupby("customer_id")["day"]
+        p["prev_day"] = grouped.shift(1)
+        p["next_day"] = grouped.shift(-1)
+        return PurchaseDays(p)
+
+    @staticmethod
+    def of(purchases: pd.DataFrame) -> PurchaseDays:
+        """Memoised `build` for this exact frame object (see `_memo`)."""
+        return _memo("purchase_days", purchases, lambda: PurchaseDays.build(purchases))
+
+
+def churn(
+    purchases: pd.DataFrame,
+    period: Period,
+    churn_days: int,
+    as_of: date,
+    prepared: PurchaseDays | None = None,
+) -> Ratio:
     """Inactivity-based churn (§4.2).
 
     A customer churns on `last purchase + churn_days` if they did not buy again before then.
     base = customers alive at the start of P (last purchase before P within churn_days);
     churned = base customers whose churn date falls in P and has already happened by `as_of`.
+    Purchases after `as_of` are ignored: a later purchase does not undo a churn already seen.
     """
-    p = _identified(purchases)[["customer_id", "day"]].drop_duplicates()
-    p = p[p["day"] <= ts(as_of)].sort_values(["customer_id", "day"])
+    p = (prepared or PurchaseDays.of(purchases)).days
+    p = p[p["day"] <= ts(as_of)]
     start, end = ts(period.start), ts(period.end)
     threshold = pd.Timedelta(days=churn_days)
 
     last_before = p[p["day"] < start].groupby("customer_id")["day"].max()
     alive = set(last_before[last_before >= start - threshold].index)
 
-    nxt = p.groupby("customer_id")["day"].shift(-1)
+    # The next purchase only counts if it happened by as_of (as if later data did not exist).
+    nxt = p["next_day"].where(p["next_day"] <= ts(as_of))
     churn_date = p["day"] + threshold
     lapsed = nxt.isna() | (nxt > churn_date)
     events = p[lapsed & (churn_date >= start) & (churn_date < end) & (churn_date <= ts(as_of))]
@@ -131,17 +191,20 @@ def period_kpis(
     period: Period,
     settings: AnalyticsSettings,
     as_of: date,
+    prepared: PurchaseDays | None = None,
+    first: pd.Series | None = None,
 ) -> dict[str, Any]:
-    """All Business Overview KPIs for one period. Money in minor units; rates 0..1."""
+    """All Business Overview KPIs for one period. Money in minor units; rates 0..1.
+    `prepared` and `first` can be passed in when computing many periods of the same data."""
     in_p = _in(purchases, period)
     revenue = int(in_p["net"].sum())
     orders = int(in_p["orders"].sum())
     identified = in_p[in_p["customer_id"].notna()]
     c_p = set(identified["customer_id"])
-    first = first_purchase(purchases)
+    first = first_purchase(purchases) if first is None else first
     new = set(first[(first >= ts(period.start)) & (first < ts(period.end))].index)
     ret = retention(purchases, period)
-    ch = churn(purchases, period, settings.churn_days, as_of)
+    ch = churn(purchases, period, settings.churn_days, as_of, prepared)
     clv = historical_clv(purchases, as_of)
     return {
         "total_customers": total_customers(customers, period.end),

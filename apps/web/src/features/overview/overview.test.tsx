@@ -2,6 +2,7 @@ import type { OverviewResponse } from '@ci/contracts';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { axeViolations } from '../../test/axe';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
 import { formatChange, formatKpiValue } from './KpiCard';
 import { addDays, lastDay, resolvePreset, todayIn } from './periods';
@@ -188,6 +189,7 @@ describe('OverviewPage', () => {
     const total = screen.getByRole('region', { name: 'Total customers' });
     expect(within(total).getByText(/\+5\.3%/)).toHaveClass('text-positive');
     expect(screen.getByText(/Data through/)).toHaveTextContent('America/Bogota');
+    expect(await axeViolations()).toEqual([]);
   });
 
   it('requests the chosen period and comparison', async () => {

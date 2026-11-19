@@ -2,6 +2,7 @@ import { DEFAULT_SEGMENT_CONFIG, type Recommendation } from '@ci/contracts';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { axeViolations } from '../../test/axe';
 import { makeSession, mockApi, READY, renderApp } from '../../test/fixtures';
 import { formatMetric } from './RecommendationDetailPage';
 
@@ -113,6 +114,7 @@ describe('Recommendations', () => {
     expect(screen.getByText('18.0%')).toBeInTheDocument();
     expect(await screen.findByRole('link', { name: 'Lucía Gómez' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download CSV' })).toBeInTheDocument();
+    expect(await axeViolations()).toEqual([]);
   });
 
   it('asks for a reason before dismissing', async () => {

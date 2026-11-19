@@ -14,6 +14,7 @@ import pandas as pd
 
 from insights.metrics.core import (
     MIN_SAMPLE,
+    PurchaseDays,
     Ratio,
     _identified,
     churn,
@@ -43,9 +44,8 @@ def wilson(successes: int, trials: int, z: float = Z_95) -> tuple[float, float] 
 
 def median_gap_days(purchases: pd.DataFrame) -> float | None:
     """Median over repeat customers of their median days between purchase days."""
-    p = _identified(purchases)[["customer_id", "day"]].drop_duplicates()
-    p = p.sort_values(["customer_id", "day"])
-    gaps = p.groupby("customer_id")["day"].diff().dt.days.dropna()
+    p = PurchaseDays.of(purchases).days
+    gaps = (p["day"] - p["prev_day"]).dt.days.dropna()
     if gaps.empty:
         return None
     per_customer = gaps.groupby(p.loc[gaps.index, "customer_id"]).median()
@@ -112,9 +112,8 @@ def retention_series(
 def reactivated(purchases: pd.DataFrame, period: Period, churn_days: int) -> set[str]:
     """Customers who bought in P after a gap longer than the churn threshold: they had churned
     and came back (§4.2)."""
-    p = _identified(purchases)[["customer_id", "day"]].drop_duplicates()
-    p = p.sort_values(["customer_id", "day"])
-    prev = p.groupby("customer_id")["day"].shift(1)
+    p = PurchaseDays.of(purchases).days
+    prev = p["prev_day"]
     back = (
         prev.notna()
         & ((p["day"] - prev) > pd.Timedelta(days=churn_days))
@@ -162,15 +161,17 @@ def churned_customers(
     """
     p = _identified(purchases)
     p = p[p["day"] <= ts(as_of)]
-    days = p[["customer_id", "day"]].drop_duplicates().sort_values(["customer_id", "day"])
+    days = PurchaseDays.of(purchases).days
+    days = days[days["day"] <= ts(as_of)]
     threshold = pd.Timedelta(days=churn_days)
     start, end = ts(period.start), ts(period.end)
 
-    nxt = days.groupby("customer_id")["day"].shift(-1)
+    # A purchase after as_of does not count (as if later data did not exist).
+    nxt = days["next_day"].where(days["next_day"] <= ts(as_of))
     churn_date = days["day"] + threshold
     lapsed = nxt.isna() | (nxt > churn_date)
     in_period = (churn_date >= start) & (churn_date < end) & (churn_date <= ts(as_of))
-    events = days[lapsed & in_period].copy()
+    events = days.loc[lapsed & in_period, ["customer_id", "day"]].copy()
     events["churn_date"] = events["day"] + threshold
     events = events.rename(columns={"day": "last_purchase"})
     # A customer who churned, came back and churned again within P is listed once, at the

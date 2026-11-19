@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import type { Config } from '../core/config.js';
 import type { Logger } from '../core/logger.js';
 
@@ -15,7 +15,7 @@ export interface Mailer {
 }
 
 export class SmtpMailer implements Mailer {
-  private readonly transport: nodemailer.Transporter;
+  private readonly transport: Transporter;
 
   constructor(
     url: string,
