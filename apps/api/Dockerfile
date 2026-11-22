@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context: repository root (the API depends on workspace packages).
 
-FROM node:24-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 WORKDIR /repo
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false
 # Prisma's migration engine needs OpenSSL; CA certificates for TLS to managed services.
