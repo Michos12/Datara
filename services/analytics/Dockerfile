@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build context: services/analytics
 
-FROM python:3.13-slim AS base
+FROM python:3.15-slim AS base
 COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /uvx /bin/
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
