@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Customer Insights analytics service: metric calculations, snapshots and recommendations."
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.116",
+    "fastapi>=0.165.0",
     "uvicorn[standard]>=0.35",
     "psycopg[binary,pool]>=3.2",
     "pydantic-settings>=2.10",
