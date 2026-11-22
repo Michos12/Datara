@@ -25,7 +25,7 @@ RUN npm run build
 
 # ── Production (default target): static files behind unprivileged nginx, which also proxies
 # /api to the private API service (API_UPSTREAM, substituted into the template at start-up) ──
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS prod
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS prod
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
 ENV API_UPSTREAM=api:4000
