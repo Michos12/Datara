@@ -22,8 +22,8 @@ const rejected: RateLimitExceededEventHandler = (_req, _res, next) => {
 };
 
 /**
- * In-memory stores: correct for a single API instance. A shared store (Postgres or Redis)
- * is needed before running several instances (tracked for M9).
+ * In-memory stores: correct for a single API instance, which is the Render topology
+ * (docs/08-deployment.md). A shared store (Postgres or Redis) is needed before running several.
  */
 export function createAuthLimiters(limits: AuthRateLimits): {
   login: RequestHandler;

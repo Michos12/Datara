@@ -7,6 +7,7 @@ import type { Database } from '../../infra/database.js';
 import { enqueueJob } from '../../infra/job-queue.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { requireAuth, requireRole } from '../auth/auth.middleware.js';
+import { limitExpensive } from '../auth/session-policy.js';
 import type { TokenService } from '../auth/tokens.js';
 
 export const DEMO_DATA_JOB = 'analytics.demo_data';
@@ -65,6 +66,7 @@ export function jobRouter(deps: { db: Database; tokens: TokenService }): Router 
     '/organization/demo-data',
     requireAuth(deps.tokens),
     requireRole('OWNER'),
+    limitExpensive(deps.tokens),
     async (req, res) => {
       const { size } = demoRequestSchema.parse(req.body ?? {});
       const auth = getAuth(req);

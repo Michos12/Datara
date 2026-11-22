@@ -58,6 +58,10 @@ const envSchema = z.object({
   /** Outgoing mail server, e.g. smtp://mailpit:1025. Unset: emails are only logged (dev). */
   SMTP_URL: z.url({ protocol: /^smtps?$/ }).optional(),
   MAIL_FROM: z.string().min(3).default('Customer Insights <no-reply@customer-insights.local>'),
+  /** Authenticated requests per user per minute (docs/04-api-spec.md §4). */
+  RATE_LIMIT_PER_USER: z.coerce.number().int().min(1).default(300),
+  /** Exports, PDF reports, recomputes and demo data per organization per minute. */
+  RATE_LIMIT_EXPENSIVE_PER_ORG: z.coerce.number().int().min(1).default(10),
   /** Public URL of the web app, for links in emails. */
   APP_URL: z.url().default('http://localhost:5173'),
   /** Connections in the API's Postgres pool (each request holds one per transaction). */
@@ -89,6 +93,7 @@ export interface Config {
   workerInProcess: boolean;
   metricsToken: string | null;
   databasePoolSize: number;
+  apiLimits: { requestsPerUserPerMinute: number; expensivePerOrgPerMinute: number };
 }
 
 export class ConfigError extends Error {
@@ -133,5 +138,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     workerInProcess: e.WORKER_IN_PROCESS,
     databasePoolSize: e.DATABASE_POOL_SIZE,
     metricsToken: e.METRICS_TOKEN ?? null,
+    apiLimits: {
+      requestsPerUserPerMinute: e.RATE_LIMIT_PER_USER,
+      expensivePerOrgPerMinute: e.RATE_LIMIT_EXPENSIVE_PER_ORG,
+    },
   };
 }

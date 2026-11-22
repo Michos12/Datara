@@ -8,17 +8,21 @@ let owner: TestSession;
 let api: ReturnType<typeof authed>;
 let org: string;
 
-/** Reads the entries of a ZIP produced by infra/zip.ts (deflate, no ZIP64). */
+/** Reads the entries of a ZIP produced by infra/zip.ts (deflate, sizes in the central directory). */
 function unzip(buffer: Buffer): Map<string, string> {
   const files = new Map<string, string>();
-  let offset = 0;
-  while (buffer.readUInt32LE(offset) === 0x04034b50) {
-    const size = buffer.readUInt32LE(offset + 18);
-    const nameLength = buffer.readUInt16LE(offset + 26);
-    const name = buffer.subarray(offset + 30, offset + 30 + nameLength).toString('utf8');
-    const start = offset + 30 + nameLength;
-    files.set(name, inflateRawSync(buffer.subarray(start, start + size)).toString('utf8'));
-    offset = start + size;
+  const end = buffer.length - 22;
+  expect(buffer.readUInt32LE(end)).toBe(0x06054b50);
+  let central = buffer.readUInt32LE(end + 16);
+  for (let i = 0; i < buffer.readUInt16LE(end + 10); i++) {
+    const compressed = buffer.readUInt32LE(central + 20);
+    const nameLength = buffer.readUInt16LE(central + 28);
+    const skip = nameLength + buffer.readUInt16LE(central + 30) + buffer.readUInt16LE(central + 32);
+    const name = buffer.subarray(central + 46, central + 46 + nameLength).toString('utf8');
+    const local = buffer.readUInt32LE(central + 42);
+    const start = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+    files.set(name, inflateRawSync(buffer.subarray(start, start + compressed)).toString('utf8'));
+    central += 46 + skip;
   }
   return files;
 }
@@ -232,5 +236,24 @@ describe('maintenance and metrics', () => {
   it('serves metrics only with the token', async () => {
     // The test config has no METRICS_TOKEN: the endpoint does not exist.
     expect((await api.get('/metrics')).status).toBe(404);
+  });
+});
+
+describe('expensive operation limits', () => {
+  const limited = createTestContext({
+    apiLimits: { requestsPerUserPerMinute: 1000, expensivePerOrgPerMinute: 2 },
+  });
+  afterAll(() => limited.close());
+
+  it('limits exports per organization and says when to retry', async () => {
+    const session = await signup(limited.app);
+    const limitedApi = authed(limited.app, session.accessToken);
+    expect((await limitedApi.post('/organization/export')).status).toBe(202);
+    expect((await limitedApi.post('/organization/export')).status).toBe(409);
+    const third = await limitedApi.post('/organization/export');
+    expect(third.status).toBe(429);
+    expect(Number(third.headers['retry-after'])).toBeGreaterThan(0);
+    // Ordinary reads are not affected.
+    expect((await limitedApi.get('/customers')).status).toBe(200);
   });
 });

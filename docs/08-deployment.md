@@ -59,6 +59,8 @@ Checklist after the first deploy:
 | `TRUST_PROXY`                      | api                    | Proxy hops in front of the API (`2`: Render's edge and nginx), for client IPs in rate limits and audit logs. |
 | `APP_URL`, `SMTP_URL`, `MAIL_FROM` | api                    | Email links and delivery.                                                                                    |
 | `METRICS_TOKEN`                    | api                    | Enables `GET /api/v1/metrics` with `Authorization: Bearer <token>` (private network only).                   |
+| `RATE_LIMIT_PER_USER`              | api                    | Authenticated requests per user per minute (default 300).                                                    |
+| `RATE_LIMIT_EXPENSIVE_PER_ORG`     | api                    | Exports, PDF reports, recomputes and demo data per organization per minute (default 10).                     |
 | `API_UPSTREAM`                     | web                    | `host:port` of the API (from Render's private network).                                                      |
 
 ## 4. Operations

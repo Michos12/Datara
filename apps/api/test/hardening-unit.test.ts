@@ -4,7 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { deriveEnvironment, loadConfig } from '../src/core/config.js';
 import { recordJob, recordRequest, renderMetrics, resetMetrics } from '../src/infra/metrics.js';
-import { createZip } from '../src/infra/zip.js';
+import { PassThrough } from 'node:stream';
+import { inflateRawSync } from 'node:zlib';
+import { ZipWriter } from '../src/infra/zip.js';
+import {
+  FixedWindowLimiter,
+  SessionPolicy,
+  type MembershipGuard,
+} from '../src/modules/auth/session-policy.js';
 import { testConfig } from './helpers/config.js';
 
 describe('deployment configuration', () => {
@@ -81,15 +88,66 @@ describe('metrics', () => {
 });
 
 describe('zip', () => {
-  it('writes a valid archive with UTF-8 names', () => {
-    const zip = createZip([
-      { name: 'a.csv', data: Buffer.from('x,y\r\n1,2\r\n') },
-      { name: 'ñ.txt', data: Buffer.from('hola') },
-    ]);
+  it('streams a valid archive with UTF-8 names', async () => {
+    const out = new PassThrough();
+    const chunks: Buffer[] = [];
+    out.on('data', (c: Buffer) => chunks.push(c));
+    const writer = new ZipWriter(out);
+    async function* pieces() {
+      yield Buffer.from('x,y\r\n');
+      yield Buffer.from('1,2\r\n');
+    }
+    await writer.add('a.csv', pieces());
+    await writer.add('ñ.txt', [Buffer.from('hola')]);
+    const total = await writer.finish();
+    const zip = Buffer.concat(chunks);
+    expect(zip.length).toBe(total);
     expect(zip.readUInt32LE(0)).toBe(0x04034b50);
     const end = zip.length - 22;
     expect(zip.readUInt32LE(end)).toBe(0x06054b50);
     expect(zip.readUInt16LE(end + 10)).toBe(2);
+    // First central entry: compressed size, then the data right after the local header.
+    const central = zip.readUInt32LE(end + 16);
+    const compressed = zip.readUInt32LE(central + 20);
+    expect(zip.readUInt32LE(central + 24)).toBe(10);
+    const data = zip.subarray(30 + 5, 30 + 5 + compressed);
+    expect(inflateRawSync(data).toString()).toBe('x,y\r\n1,2\r\n');
     expect(zip.includes(Buffer.from('ñ.txt'))).toBe(true);
+  });
+});
+
+describe('session policy', () => {
+  it('counts hits per key in fixed windows', () => {
+    let now = 60_000;
+    const limiter = new FixedWindowLimiter(2, 60_000, () => now);
+    expect(limiter.hit('a')).toBeNull();
+    expect(limiter.hit('a')).toBeNull();
+    expect(limiter.hit('b')).toBeNull();
+    now += 15_000;
+    expect(limiter.hit('a')).toBe(45);
+    now += 45_000;
+    expect(limiter.hit('a')).toBeNull();
+  });
+
+  it('rejects former members and uses the current role', async () => {
+    const roles = new Map([['u1|o1', 'VIEWER' as const]]);
+    const guard = {
+      role: async (u: string, o: string) => roles.get(`${u}|${o}`) ?? null,
+    } as unknown as MembershipGuard;
+    const policy = new SessionPolicy(guard, {
+      requestsPerUserPerMinute: 1,
+      expensivePerOrgPerMinute: 1,
+    });
+    const res = { setHeader: () => undefined } as never;
+    const admitted = await policy.admit(res, { userId: 'u1', organizationId: 'o1', role: 'OWNER' });
+    expect(admitted.role).toBe('VIEWER');
+    await expect(
+      policy.admit(res, { userId: 'u2', organizationId: 'o1', role: 'OWNER' }),
+    ).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
+    await expect(
+      policy.admit(res, { userId: 'u1', organizationId: 'o1', role: 'OWNER' }),
+    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    policy.expensive(res, 'o1');
+    expect(() => policy.expensive(res, 'o1')).toThrow(/Too many exports/);
   });
 });

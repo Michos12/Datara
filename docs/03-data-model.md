@@ -682,10 +682,12 @@ CREATE UNIQUE INDEX jobs_one_pending_recompute
   ON jobs (organization_id, type)
   WHERE status = 'PENDING' AND type = 'analytics.recompute';
 
--- Full-text-ish customer search
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX customers_search_trgm ON customers
-  USING gin ((coalesce(first_name,'') || ' ' || coalesce(last_name,'') || ' ' || coalesce(email::text,'')) gin_trgm_ops);
+-- Customer search: a stored, lowercased copy of the searchable fields, matched with LIKE.
+-- No index: under RLS, Postgres uses neither an index nor column statistics for a
+-- non-leakproof operator such as LIKE/ILIKE, so a trigram index is never chosen.
+ALTER TABLE customers ADD COLUMN search_text text GENERATED ALWAYS AS (
+  lower(coalesce(first_name,'') || ' ' || coalesce(last_name,'') || ' ' ||
+        coalesce(email::text,'') || ' ' || coalesce(external_id,''))) STORED;
 
 -- ───── Row-level security (repeat for every tenant table) ─────
 CREATE ROLE app_user LOGIN PASSWORD :'app_password';   -- created by init script, not migration
@@ -709,7 +711,8 @@ Tables **without** RLS: `users`, `refresh_tokens` (not tenant-owned; accessed on
 | Customer list filtered by segment from latest run              | `analytics_customer_metrics (organization_id, run_id, segment_key)`           |
 | Latest successful run                                          | `analytics_runs (organization_id, status, as_of desc)`                        |
 | Time series of a metric                                        | `analytics_period_metrics (organization_id, metric_key, grain, period_start)` |
-| Customer search by name / email                                | trigram GIN                                                                   |
+| Customer list, newest first (default sort, cursor on `id`)     | `customers (organization_id, created_at, id)`                                 |
+| Customer search by name / email / external ID                  | none: stored `search_text` scanned with `LIKE` (see above)                    |
 
 ## 6. Volume and growth
 

@@ -1,3 +1,4 @@
+import { pipeline } from 'node:stream/promises';
 import {
   comparisonQuerySchema,
   currencyMinorUnits,
@@ -15,6 +16,7 @@ import type { Database } from '../../infra/database.js';
 import type { FileStorage } from '../../infra/storage.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { requireAuth, requireRole } from '../auth/auth.middleware.js';
+import { limitExpensive } from '../auth/session-policy.js';
 import type { TokenService } from '../auth/tokens.js';
 import { neutralizeFormula } from '../exports/export.routes.js';
 import type { OrderService } from '../orders/order.service.js';
@@ -72,6 +74,9 @@ export function reportRouter(deps: {
     ],
     requireAuth(deps.tokens),
   );
+  // Every CSV export and PDF request counts towards the organization's export limit.
+  router.use('/exports', limitExpensive(deps.tokens));
+  router.post('/reports/pdf', limitExpensive(deps.tokens));
 
   router.get('/reports/comparison', async (req, res) => {
     res.json(await reports.comparison(getAuth(req), comparisonQuerySchema.parse(req.query)));
@@ -181,7 +186,7 @@ export function reportRouter(deps: {
       throw new AppError('NOT_FOUND', 'The report is not ready');
     }
     res.type('application/pdf').attachment(job.fileName ?? 'report.pdf');
-    storage.read(job.fileKey).pipe(res);
+    await pipeline(storage.read(job.fileKey), res);
   });
 
   return router;

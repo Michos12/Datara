@@ -168,6 +168,9 @@ model Customer {
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// lower(first name, last name, email, external ID) GENERATED ALWAYS ... STORED, for search.
+  /// Read-only: defined in raw SQL in the migration.
+  searchText       String    @default(dbgenerated()) @map("search_text")
 
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   orders       Order[]
@@ -175,7 +178,7 @@ model Customer {
 
   @@unique([organizationId, externalId])
   @@index([organizationId, email])
-  @@index([organizationId, createdAt])
+  @@index([organizationId, createdAt, id])
   @@map("customers")
 }
 

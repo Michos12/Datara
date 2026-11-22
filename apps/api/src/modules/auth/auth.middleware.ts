@@ -3,15 +3,22 @@ import type { RequestHandler } from 'express';
 import { AppError } from '../../core/errors.js';
 import type { TokenService } from './tokens.js';
 
-/** Resolves `req.auth` from a Bearer access token, or responds 401. */
+/**
+ * Resolves `req.auth` from a Bearer access token, or responds 401. With a session policy, the
+ * membership and role are confirmed against the database (a removed member is rejected within
+ * seconds, not when the token expires) and the request counts towards the per-user limit.
+ * Idempotent: routers sharing a path prefix may each run it for the same request.
+ */
 export function requireAuth(tokens: TokenService): RequestHandler {
-  return async (req, _res, next) => {
+  return async (req, res, next) => {
+    if (req.auth) return next();
     const header = req.get('authorization') ?? '';
     const [scheme, token] = header.split(' ');
     if (scheme?.toLowerCase() !== 'bearer' || !token) {
       throw new AppError('UNAUTHENTICATED', 'Authentication required');
     }
-    req.auth = await tokens.verifyAccessToken(token);
+    const claims = await tokens.verifyAccessToken(token);
+    req.auth = tokens.policy ? await tokens.policy.admit(res, claims) : claims;
     req.log = req.log.child({ userId: req.auth.userId, organizationId: req.auth.organizationId });
     next();
   };

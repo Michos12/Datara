@@ -37,10 +37,7 @@ export class LogMailer implements Mailer {
   constructor(private readonly logger: Logger) {}
 
   async send(email: Email): Promise<void> {
-    this.logger.warn(
-      { to: email.to, subject: email.subject },
-      'SMTP not configured: email dropped',
-    );
+    this.logger.warn({ subject: email.subject }, 'SMTP not configured: email dropped');
   }
 }
 

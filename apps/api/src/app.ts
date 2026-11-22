@@ -28,6 +28,11 @@ import { InteractionService } from './modules/interactions/interaction.service.j
 import { authRouter } from './modules/auth/auth.routes.js';
 import { AuthService } from './modules/auth/auth.service.js';
 import { DEFAULT_AUTH_RATE_LIMITS, type AuthRateLimits } from './modules/auth/rate-limits.js';
+import {
+  MembershipGuard,
+  SessionPolicy,
+  type ApiRateLimits,
+} from './modules/auth/session-policy.js';
 import { TokenService } from './modules/auth/tokens.js';
 import { healthRouter, type HealthChecks } from './modules/health/health.routes.js';
 import { customerDataRouter } from './modules/customers/customer.routes.js';
@@ -49,6 +54,8 @@ export interface AppDeps {
   /** Omitted in tests that only exercise the HTTP shell (health, errors). */
   database?: Database;
   rateLimits?: AuthRateLimits;
+  /** Per-user request and per-organization export/recompute limits (default: from config). */
+  apiLimits?: ApiRateLimits;
   /** Clock for token issuing and expiry; injectable for tests. */
   now?: () => number;
   /** Upload storage; defaults to config.storageDir on local disk. */
@@ -80,6 +87,14 @@ export function createApp(deps: AppDeps): Express {
         return id;
       },
       autoLogging: { ignore: (req) => req.url === '/api/v1/health' },
+      // Query strings carry search terms and filters (names, emails): log the path only.
+      serializers: {
+        req: (req: { url?: string; query?: unknown }) => {
+          req.url = req.url?.split('?')[0];
+          delete req.query;
+          return req;
+        },
+      },
     }),
   );
   app.use(requestMetrics());
@@ -93,7 +108,11 @@ export function createApp(deps: AppDeps): Express {
   v1.use(metricsRouter({ db: deps.database, token: config.metricsToken }));
 
   if (deps.database) {
-    const tokens = new TokenService(config.auth, deps.now);
+    const policy = new SessionPolicy(
+      new MembershipGuard(deps.database),
+      deps.apiLimits ?? config.apiLimits,
+    );
+    const tokens = new TokenService(config.auth, deps.now, policy);
     const mail = {
       mailer: deps.mailer ?? createMailer(config, logger),
       appUrl: config.appUrl,

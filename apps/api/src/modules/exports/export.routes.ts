@@ -6,6 +6,7 @@ import { clientIp, getAuth } from '../../core/request-context.js';
 import type { Database } from '../../infra/database.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { requireAuth, requireRole } from '../auth/auth.middleware.js';
+import { limitExpensive } from '../auth/session-policy.js';
 import type { TokenService } from '../auth/tokens.js';
 import { listCustomers } from '../customers/customer.repository.js';
 
@@ -78,6 +79,7 @@ export function exportRouter(deps: {
     '/exports/customers.csv',
     requireAuth(deps.tokens),
     requireRole('OWNER', 'ADMIN', 'ANALYST'),
+    limitExpensive(deps.tokens),
     async (req, res) => {
       const auth = getAuth(req);
       const filters = customerListQuerySchema.parse({ ...req.query, limit: 200 });
@@ -92,18 +94,28 @@ export function exportRouter(deps: {
       res
         .type('text/csv; charset=utf-8')
         .attachment(`customers-${new Date(now()).toISOString().slice(0, 10)}.csv`);
-      const csv = stringify({ header: true, columns: COLUMNS, bom: true });
+      const csv = stringify({
+        header: true,
+        columns: COLUMNS,
+        bom: true,
+        record_delimiter: 'windows',
+      });
       csv.pipe(res);
 
       let rows = 0;
       let cursor: string | undefined = filters.cursor;
+      // A client that goes away stops the paging instead of leaving it waiting for 'drain'.
+      const abort = new AbortController();
+      res.once('close', () => abort.abort());
       do {
         // Page through with the same keyset pagination as the list: memory stays flat.
         const page = await db.run(auth, (tx) =>
           listCustomers(tx, auth.organizationId, { ...filters, cursor }, now()),
         );
         for (const customer of page.data) {
-          if (!csv.write(toRow(customer, digits))) await once(csv, 'drain');
+          if (!csv.write(toRow(customer, digits))) {
+            await once(csv, 'drain', { signal: abort.signal });
+          }
           rows++;
         }
         cursor = page.nextCursor ?? undefined;

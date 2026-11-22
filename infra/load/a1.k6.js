@@ -3,6 +3,9 @@
 //
 //   docker run --rm -i -e BASE_URL=http://host.docker.internal:8080 -e EMAIL=... -e PASSWORD=... \
 //     grafana/k6:0.57.0 run - < infra/load/a1.k6.js
+//
+// Every virtual user shares one sign-in, so start the API with RATE_LIMIT_PER_USER=100000 for
+// the run (the default 300 per user per minute would reject most of it).
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
