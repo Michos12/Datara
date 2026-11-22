@@ -16,7 +16,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28",
-    "hypothesis>=6.140",
+    "hypothesis>=6.170.16",
     "mypy>=1.17",
     "pandas-stubs>=2.3",
     "pytest>=8.4",
