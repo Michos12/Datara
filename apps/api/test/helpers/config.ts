@@ -22,6 +22,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     workerInProcess: false,
     metricsToken: null,
     databasePoolSize: 10,
+    apiLimits: { requestsPerUserPerMinute: 300, expensivePerOrgPerMinute: 10 },
     ...overrides,
   };
 }

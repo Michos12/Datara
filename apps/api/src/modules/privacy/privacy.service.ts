@@ -2,10 +2,10 @@ import { stringify } from 'csv-stringify/sync';
 import { rm } from 'node:fs/promises';
 import { AppError } from '../../core/errors.js';
 import type { AuthContext } from '../../core/request-context.js';
-import { recordDataChange, type Database, type Tx } from '../../infra/database.js';
+import { raw, recordDataChange, sql, type Database, type Tx } from '../../infra/database.js';
 import { enqueueJob, type ClaimedJob } from '../../infra/job-queue.js';
 import type { FileStorage } from '../../infra/storage.js';
-import { createZip } from '../../infra/zip.js';
+import { ZipWriter } from '../../infra/zip.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { neutralizeFormula } from '../exports/export.routes.js';
 
@@ -28,22 +28,125 @@ interface ExportJobRow {
   finished_at: Date | null;
 }
 
-function csv(rows: Record<string, unknown>[], columns: string[]): Buffer {
-  const cell = (v: unknown) =>
-    v === null || v === undefined
-      ? ''
-      : v instanceof Date
-        ? v.toISOString()
-        : typeof v === 'bigint'
-          ? v.toString()
-          : typeof v === 'object'
-            ? JSON.stringify(v)
-            : neutralizeFormula(String(v));
+/** A table in the organization export. Identifiers are fixed here, never user input. */
+interface ExportTable {
+  file: string;
+  table: string;
+  columns: readonly string[];
+}
+
+const EXPORT_TABLES: readonly ExportTable[] = [
+  {
+    file: 'customers.csv',
+    table: 'customers',
+    columns: [
+      'id',
+      'external_id',
+      'first_name',
+      'last_name',
+      'email',
+      'phone',
+      'country',
+      'region',
+      'city',
+      'registered_at',
+      'tags',
+      'attributes',
+      'marketing_consent',
+      'anonymized_at',
+      'deleted_at',
+      'created_at',
+    ],
+  },
+  {
+    file: 'orders.csv',
+    table: 'orders',
+    columns: [
+      'id',
+      'external_id',
+      'customer_id',
+      'ordered_at',
+      'status',
+      'channel',
+      'gross_cents',
+      'discount_cents',
+      'tax_cents',
+      'refunded_cents',
+      'net_cents',
+      'deleted_at',
+      'created_at',
+    ],
+  },
+  {
+    file: 'order_items.csv',
+    table: 'order_items',
+    columns: ['id', 'order_id', 'product_id', 'sku', 'name', 'quantity', 'unit_price_cents'],
+  },
+  {
+    file: 'interactions.csv',
+    table: 'interactions',
+    columns: [
+      'id',
+      'external_id',
+      'customer_id',
+      'type',
+      'channel',
+      'occurred_at',
+      'metadata',
+      'created_at',
+    ],
+  },
+  {
+    file: 'segment_configs.csv',
+    table: 'segment_configs',
+    columns: ['id', 'version', 'is_active', 'config', 'created_at'],
+  },
+  {
+    file: 'audit_log.csv',
+    table: 'audit_logs',
+    columns: ['id', 'created_at', 'action', 'actor_user_id', 'entity_type', 'entity_id', 'details'],
+  },
+];
+
+const EXPORT_BATCH_ROWS = 5_000;
+/** An export holds one connection for its snapshot; 1.2M orders take well under a minute. */
+const EXPORT_TIMEOUT_MS = 15 * 60_000;
+const EXPORT_README =
+  'Customer Insights data export.\r\nMoney columns ending in _cents are integer minor units of the organization currency.\r\nTimestamps are UTC (ISO 8601). Rows are in creation order (by id).\r\n';
+
+function csvCellValue(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'object') return JSON.stringify(v);
+  return neutralizeFormula(String(v));
+}
+
+/** One CSV chunk; the first carries the BOM and the header row. */
+function csvChunk(
+  rows: Record<string, unknown>[],
+  columns: readonly string[],
+  first: boolean,
+): Buffer {
   const body = stringify(
-    rows.map((r) => columns.map((c) => cell(r[c]))),
-    { header: true, columns, bom: true, record_delimiter: 'windows' },
+    rows.map((r) => columns.map((c) => csvCellValue(r[c]))),
+    { header: first, columns: [...columns], bom: first, record_delimiter: 'windows' },
   );
   return Buffer.from(body, 'utf8');
+}
+
+/** The organization's rows of one table as CSV chunks, in keyset pages by id. */
+async function* csvPages(tx: Tx, org: string, t: ExportTable): AsyncGenerator<Buffer> {
+  let after: string | null = null;
+  for (let first = true; ; first = false) {
+    const rows: Record<string, unknown>[] = await tx.$queryRaw<Record<string, unknown>[]>(sql`
+      SELECT ${raw(t.columns.join(', '))} FROM ${raw(t.table)}
+      WHERE organization_id = ${org}::uuid AND (${after}::uuid IS NULL OR id > ${after}::uuid)
+      ORDER BY id LIMIT ${EXPORT_BATCH_ROWS}`);
+    if (first || rows.length > 0) yield csvChunk(rows, t.columns, first);
+    if (rows.length < EXPORT_BATCH_ROWS) return;
+    after = String(rows[rows.length - 1]!.id);
+  }
 }
 
 /**
@@ -158,74 +261,47 @@ export class PrivacyService {
     };
   }
 
-  /** Job handler: every table of the organization as CSV, in one ZIP. */
+  /**
+   * Job handler: every table of the organization as CSV, in one ZIP. The tables are read in
+   * pages inside one snapshot transaction and streamed into the archive on disk, so memory stays
+   * flat and the export is consistent at any size.
+   */
   async generateExport(job: ClaimedJob): Promise<void> {
     const org = job.organizationId;
     if (!org) throw new Error('export job needs an organization');
-    const files = await this.db.run({ organizationId: org }, (tx) => this.collect(tx, org));
-    const zip = createZip(files, new Date(this.now()));
     const fileKey = `exports/${org}/${job.id}.zip`;
     await this.storage.ensureDir(fileKey);
     const out = this.storage.createWriteStream(fileKey);
-    await new Promise<void>((resolve, reject) => {
-      out.on('error', reject);
-      out.end(zip, () => resolve());
-    });
+    const zip = new ZipWriter(out, new Date(this.now()));
+    let bytes: number;
+    try {
+      bytes = await this.db.run(
+        { organizationId: org },
+        async (tx) => {
+          await zip.add('README.txt', [Buffer.from(EXPORT_README)]);
+          const organization = await tx.$queryRaw<Record<string, unknown>[]>`
+            SELECT id, name, slug, timezone, currency, industry, settings, created_at
+            FROM organizations WHERE id = ${org}::uuid`;
+          await zip.add('organization.json', [
+            Buffer.from(JSON.stringify(organization[0] ?? {}, null, 2)),
+          ]);
+          for (const table of EXPORT_TABLES) await zip.add(table.file, csvPages(tx, org, table));
+          return zip.finish();
+        },
+        { timeoutMs: EXPORT_TIMEOUT_MS, snapshot: true },
+      );
+    } catch (err) {
+      out.destroy();
+      await this.storage.remove(fileKey);
+      throw err;
+    }
     const fileName = `customer-insights-export-${new Date(this.now()).toISOString().slice(0, 10)}.zip`;
     await this.db.run(
       { organizationId: org },
       (tx) =>
-        tx.$executeRaw`UPDATE jobs SET result = ${JSON.stringify({ fileKey, fileName, bytes: zip.length })}::jsonb
+        tx.$executeRaw`UPDATE jobs SET result = ${JSON.stringify({ fileKey, fileName, bytes })}::jsonb
         WHERE id = ${job.id}::uuid`,
     );
-  }
-
-  private async collect(tx: Tx, org: string): Promise<{ name: string; data: Buffer }[]> {
-    const q = (sql: TemplateStringsArray) =>
-      tx.$queryRawUnsafe<Record<string, unknown>[]>(sql.join(''), org);
-    const organization = await q`
-      SELECT id, name, slug, timezone, currency, industry, settings, created_at
-      FROM organizations WHERE id = $1::uuid`;
-    const customers = await q`
-      SELECT id, external_id, first_name, last_name, email, phone, country, region, city,
-             registered_at, tags, attributes, marketing_consent, anonymized_at, deleted_at, created_at
-      FROM customers WHERE organization_id = $1::uuid ORDER BY created_at`;
-    const orders = await q`
-      SELECT id, external_id, customer_id, ordered_at, status, channel, gross_cents, discount_cents,
-             tax_cents, refunded_cents, net_cents, deleted_at, created_at
-      FROM orders WHERE organization_id = $1::uuid ORDER BY ordered_at`;
-    const items = await q`
-      SELECT id, order_id, product_id, sku, name, quantity, unit_price_cents
-      FROM order_items WHERE organization_id = $1::uuid`;
-    const interactions = await q`
-      SELECT id, external_id, customer_id, type, channel, occurred_at, metadata, created_at
-      FROM interactions WHERE organization_id = $1::uuid ORDER BY occurred_at`;
-    const segments = await q`
-      SELECT version, is_active, config, created_at FROM segment_configs
-      WHERE organization_id = $1::uuid ORDER BY version`;
-    const audit = await q`
-      SELECT created_at, action, actor_user_id, entity_type, entity_id, details
-      FROM audit_logs WHERE organization_id = $1::uuid ORDER BY created_at`;
-    const cols = (rows: Record<string, unknown>[], fallback: string[]) =>
-      rows[0] ? Object.keys(rows[0]) : fallback;
-    return [
-      {
-        name: 'README.txt',
-        data: Buffer.from(
-          'Customer Insights data export.\r\nMoney columns ending in _cents are integer minor units of the organization currency.\r\nTimestamps are UTC (ISO 8601).\r\n',
-        ),
-      },
-      {
-        name: 'organization.json',
-        data: Buffer.from(JSON.stringify(organization[0] ?? {}, null, 2)),
-      },
-      { name: 'customers.csv', data: csv(customers, cols(customers, ['id'])) },
-      { name: 'orders.csv', data: csv(orders, cols(orders, ['id'])) },
-      { name: 'order_items.csv', data: csv(items, cols(items, ['id'])) },
-      { name: 'interactions.csv', data: csv(interactions, cols(interactions, ['id'])) },
-      { name: 'segment_configs.csv', data: csv(segments, cols(segments, ['version'])) },
-      { name: 'audit_log.csv', data: csv(audit, cols(audit, ['created_at'])) },
-    ];
   }
 
   /**

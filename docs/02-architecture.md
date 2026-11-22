@@ -112,7 +112,7 @@ Two independent layers, so one mistake does not leak data.
 
 **Layer 1 — application scoping.**
 
-- The auth middleware resolves `req.ctx = { userId, organizationId, role }` from the access token. The token carries the active organization; membership is re-checked against the database when the token is refreshed.
+- The auth middleware resolves `req.auth = { userId, organizationId, role }` from the access token. The token carries the active organization; the membership and role are re-read from the database on each request (cached for 10 s per process, cleared at once by team changes), so a removed or demoted member loses access within seconds rather than when the token expires.
 - The tenant Prisma client is created per request through a Prisma client extension that injects `organizationId` into every `where` and `data` for tenant models. Services cannot obtain an unscoped client; only the `auth` and platform-admin code paths can.
 - Lookups by ID always use `{ id, organizationId }`. A record in another tenant returns **404**, not 403, so IDs cannot be probed.
 
@@ -186,11 +186,11 @@ Simple aggregates (counts, sums, `date_trunc` buckets) **are** pushed into SQL, 
 
 | Service      | Image             | Notes                                                                         |
 | ------------ | ----------------- | ----------------------------------------------------------------------------- |
-| `db`         | postgres:16       | Volume; init script creates `app_user` role.                                  |
-| `api`        | node:22 build     | Runs migrations on start (dev only), hot reload.                              |
+| `db`         | postgres:17       | Volume; init script creates `app_user` role.                                  |
+| `api`        | node:24 build     | Runs migrations on start (dev only), hot reload.                              |
 | `api-worker` | same image as api | Runs the Node job worker (imports, exports).                                  |
-| `analytics`  | python:3.12 build | FastAPI (internal) and the analytics worker as two processes or two services. |
-| `web`        | node:22 build     | Vite dev server; in production, static files served by nginx/CDN.             |
+| `analytics`  | python:3.13 build | FastAPI (internal) and the analytics worker as two processes or two services. |
+| `web`        | node:24 build     | Vite dev server; in production, static files served by nginx/CDN.             |
 | `mailpit`    | axllent/mailpit   | Local email capture (P1).                                                     |
 
 Production (M9): Render, from `render.yaml`. Only the web service is public. Its nginx serves the SPA and proxies `/api` to the private API service, which runs the Node job loop in-process (single disk for uploads and reports). The analytics service and worker are private, and Postgres is managed. The production images are non-root and the default build target; `docker-compose.prod.yml` runs them locally the same way. See [08-deployment.md](08-deployment.md).

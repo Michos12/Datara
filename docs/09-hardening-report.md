@@ -48,7 +48,14 @@ Fixes made on the way:
 
 Stress, for reference: 20 users sending five parallel requests with no think time (about 60 requests/s on this laptop) reach CRUD p95 1.2 s and dashboard p95 0.8 s with no errors. The database CPU is the limit. A dedicated Postgres instance moves it.
 
-Search (`ILIKE` over a trigram index) and the spend sort are the slowest customer queries (about 130 ms and 95 ms alone). If they become a problem, the spend sort can be served from an index on the snapshot table.
+Re-run after the code audit (§4), same laptop and data, API started with `RATE_LIMIT_PER_USER=100000`: CRUD p95 first measured **506 ms** with a warm database. The commit before the audit, built and run the same afternoon, measured 785 ms–1.04 s, so the audit changes cost nothing; the machine was slower than for the 174 ms run. Two customer-list problems explained the thin margin, and are fixed:
+
+- **Default order.** The list sorts by `(created_at, id)` but the index had only `created_at`. Customers created together (one import, one generator run) share `created_at`, so Postgres read and sorted all 100,000 to return 50 (265 ms). The index is now `(organization_id, created_at, id)`: 0.1 ms.
+- **Search.** Postgres never uses an index for a non-leakproof operator such as `ILIKE` under RLS, and cannot use column statistics to estimate it either, so the trigram index had never been used: every search concatenated and case-folded each customer's text (100 ms). Search now matches a stored, lowercased `search_text` column with `LIKE` (25 ms for a full scan; 10 ms for common terms, which stop at the first page) and the unused index is gone.
+
+After the fixes, same conditions, two runs: CRUD p95 **132–136 ms**, dashboard p95 **29–32 ms**, 0% failed.
+
+The spend, order-count and last-purchase sorts are now the slowest customer queries (about 90–125 ms alone at A1): they join every customer to the latest snapshot to sort. If they become a problem, they can be served from an index on the snapshot table, with customers created after the snapshot merged in separately.
 
 ## 2. Security review
 
@@ -86,12 +93,37 @@ It also checks that the runtime role is not superuser, cannot bypass RLS and can
 ## 3. Privacy
 
 - **Right to erasure (CUS-10).** `POST /customers/:id/erase` with `anonymize` (PII cleared, orders kept for aggregates) or `delete` (record and interactions removed; orders become guest revenue). The audit entry names the customer ID only.
-- **Data export (NFR-PRV-02).** `POST /organization/export` (owner) builds a ZIP with every table as CSV plus a README. The archive is built in memory, which suits organizations up to roughly a million rows; larger ones need a streamed archive.
+- **Data export (NFR-PRV-02).** `POST /organization/export` (owner) builds a ZIP with every table as CSV plus a README. The tables are read in pages of 5,000 rows inside one snapshot (REPEATABLE READ) transaction and streamed into the archive on disk, so memory stays flat and the export is consistent. Limit: 4 GiB per archive (no ZIP64). Measured at A1 (100,000 customers, 1,222,946 orders; 225 MB of CSV, 58 MB zipped): 37 s, every row present and CRCs valid; with the API container capped at 512 MB like the Render starter plan, 63 s with a peak of 215 MB resident, and `GET /orders` kept answering meanwhile (median 71 ms).
 - **Organization deletion.** `DELETE /organization` with the organization's exact name removes all of its data, including the analytics tables without foreign keys and its stored files. Member accounts remain for their other organizations.
 - **Retention (OPEN-11).** See the deployment guide §4.
 - **Processor role (NFR-PRV-03).** The platform processes customer data on behalf of each organization (the controller). Data stays within the organization (RLS); the platform uses it only to compute that organization's analytics; deletion and export are self-service for owners. The hosting region is the one chosen for the Render services.
 
-## 4. Accessibility
+## 4. Code audit (2026-11-19)
+
+A review of the finished code after M9 found these, now fixed:
+
+| Severity | Finding                                                                                                                                                                                                                                     | Fix                                                                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| High     | The §4 limits of the API spec existed only for auth routes: any member could start unlimited exports, PDFs and recomputes.                                                                                                                  | Per-user (300/min) and per-organization export/recompute (10/min) limits, `429` with `Retry-After`.                        |
+| High     | The organization export loaded every table into memory in one 30 s transaction and zipped synchronously in the API process (event loop blocked).                                                                                            | Paged reads in one snapshot transaction, streamed ZIP with async deflate.                                                  |
+| Medium   | Customer search could never use its trigram index under RLS (`ILIKE` is not leakproof), and the default list order had no index for its `id` tie-breaker: at A1 both scanned every customer, and CRUD p95 rose to 506 ms on a busy machine. | `(organization_id, created_at, id)` index; stored lowercased `search_text` matched with `LIKE`; unused index dropped (§1). |
+| Medium   | Role and membership came from the access token: a removed or demoted member kept their access for up to 15 minutes.                                                                                                                         | Membership and role re-read per request (10 s cache, cleared by team changes).                                             |
+| Medium   | Request logs kept full URLs, so search terms (names, emails) reached the logs; the log-only mailer logged recipients.                                                                                                                       | Paths only in request logs; recipients no longer logged.                                                                   |
+| Low      | Downloads used `.pipe()` with no error handling: a read error after the headers could crash the process. An error after headers were sent tried a second response.                                                                          | `pipeline()` for downloads; the error handler ends an interrupted response.                                                |
+| Low      | Forgot-password waited for SMTP only for existing accounts (timing oracle).                                                                                                                                                                 | The email is sent after the response.                                                                                      |
+| Low      | Docs drift (container versions, `req.ctx`, the rate-limit table); the customer CSV used LF rows unlike the other CSVs.                                                                                                                      | Corrected.                                                                                                                 |
+
+Known and accepted, or left for later:
+
+- Rate-limit counters and the membership cache are per process (one API instance on Render). A shared store is needed before scaling out.
+- No email verification at signup: an address can be registered by someone who does not own it.
+- The invitation preview says whether the invited email already has an account; anyone holding the link sees it.
+- Cold analytics queries on a new date range take up to 16 s at A1 volume and are bounded only by the per-user limit and the 5-year range cap.
+- Concurrent cache misses for the same analytics query compute it twice; a recompute running longer than the 15-minute stale-lock window could run twice.
+- `Promise.all` over queries on one transaction client (seven modules) gains nothing, since one connection runs them in turn, and triggers a pg deprecation warning that becomes an error in pg 9.
+- The analytics service caches up to 8 organizations' data frames in memory with no byte limit; size the instance for it, or lower the cache, with many large tenants.
+
+## 5. Accessibility
 
 - axe-core (WCAG 2.1 A/AA rules) runs inside the web test suite on:
   - sign-in, sign-up and forgot-password;

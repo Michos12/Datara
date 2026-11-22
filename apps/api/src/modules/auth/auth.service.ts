@@ -289,11 +289,11 @@ export class AuthService {
     });
     // The token travels in the fragment, which browsers never send to servers or in Referer.
     const link = `${this.mail.appUrl}/reset-password#token=${token}`;
-    try {
-      await this.mail.mailer.send(passwordResetEmail(user.email, link, PASSWORD_RESET_TTL_MINUTES));
-    } catch (err) {
-      this.mail.logger.error({ err }, 'password reset email failed');
-    }
+    // Not awaited: an SMTP round trip only for existing accounts would reveal them by timing.
+    const { mailer, logger } = this.mail;
+    mailer
+      .send(passwordResetEmail(user.email, link, PASSWORD_RESET_TTL_MINUTES))
+      .catch((err: unknown) => logger.error({ err }, 'password reset email failed'));
   }
 
   /** Sets a new password from a reset link and signs the user out everywhere. */

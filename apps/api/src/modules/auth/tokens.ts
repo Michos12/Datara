@@ -5,6 +5,7 @@ import type { Config } from '../../core/config.js';
 import { AppError } from '../../core/errors.js';
 import { isUuid, newId } from '../../core/ids.js';
 import type { AuthContext } from '../../core/request-context.js';
+import type { SessionPolicy } from './session-policy.js';
 
 const ISSUER = 'customer-insights';
 const AUDIENCE = 'customer-insights-api';
@@ -17,6 +18,8 @@ export class TokenService {
   constructor(
     private readonly config: Config['auth'],
     private readonly now: () => number = Date.now,
+    /** Membership re-check and request limits applied by `requireAuth` (omitted in unit tests). */
+    readonly policy?: SessionPolicy,
   ) {
     this.key = new TextEncoder().encode(config.jwtSecret);
   }

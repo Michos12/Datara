@@ -186,10 +186,8 @@ export async function listCustomers(
   ];
   if (query.q) {
     const like = `%${query.q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    filters.push(sql`(
-      coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '') || ' ' ||
-      coalesce(c.email::text, '') || ' ' || coalesce(c.external_id, '')
-    ) ILIKE ${like}`);
+    // search_text is the stored lowercased name, email and external ID (see its migration).
+    filters.push(sql`c.search_text LIKE lower(${like})`);
   }
   // Like the stats sorts, these filters read the latest snapshot.
   if (query.minSpentCents !== undefined)

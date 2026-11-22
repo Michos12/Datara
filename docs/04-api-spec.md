@@ -441,11 +441,15 @@ Rates report `changeType: "points"` (percentage-point difference), counts and mo
 
 ## 4. Rate limits (initial)
 
-| Scope                                  | Limit                                 |
-| -------------------------------------- | ------------------------------------- |
-| `POST /auth/login`, `/auth/password/*` | 5 / min per IP+email; 20 / min per IP |
-| Authenticated API                      | 300 / min per user                    |
-| Exports & recompute triggers           | 10 / min per organization             |
+| Scope                                  | Limit                                             |
+| -------------------------------------- | ------------------------------------------------- |
+| `POST /auth/login`                     | 5 failed / min per IP+email                       |
+| Signup, login, password and invitation | 20 / min per IP                                   |
+| `POST /auth/refresh`                   | 60 / min per IP                                   |
+| Authenticated API                      | 300 / min per user                                |
+| Exports & recompute triggers           | 10 / min per organization (shared by all members) |
+
+"Exports & recompute triggers" are every `GET /exports/*`, recommendation customer CSVs, `POST /reports/pdf`, `POST /analytics/runs`, `POST /organization/export` and `POST /organization/demo-data`. Over a limit the API answers `429` (`rate-limited`) with `Retry-After` in seconds. The counters live in the API process: correct for the single API instance of the Render topology; several instances need a shared store.
 
 ## 5. Versioning and compatibility
 

@@ -55,12 +55,16 @@ export function organizationRouter(deps: {
 
   router.patch('/organization/members/:userId', requireRole(...MANAGERS), async (req, res) => {
     const body = updateMemberRequestSchema.parse(req.body);
-    await team.updateRole(getAuth(req), pathId(req, 'userId'), body.role, clientIp(req));
+    const userId = pathId(req, 'userId');
+    await team.updateRole(getAuth(req), userId, body.role, clientIp(req));
+    deps.tokens.policy?.membership.forget(userId, getAuth(req).organizationId);
     res.json({ data: await team.members(getAuth(req)) });
   });
 
   router.delete('/organization/members/:userId', requireRole(...MANAGERS), async (req, res) => {
-    await team.remove(getAuth(req), pathId(req, 'userId'), clientIp(req));
+    const userId = pathId(req, 'userId');
+    await team.remove(getAuth(req), userId, clientIp(req));
+    deps.tokens.policy?.membership.forget(userId, getAuth(req).organizationId);
     res.status(204).end();
   });
 

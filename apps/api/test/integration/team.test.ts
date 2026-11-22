@@ -204,6 +204,23 @@ describe('members', () => {
     expect(audit).toHaveLength(2);
   });
 
+  it('applies role changes and removals to live access tokens at once', async () => {
+    const member = await signup(ctx.app);
+    await api.post('/organization/invitations', { email: member.email, role: 'ADMIN' });
+    const joined = await post('/invitations/accept', {
+      token: tokenFor(member.email),
+      password: member.password,
+    });
+    const asMember = authed(ctx.app, joined.body.accessToken);
+    expect((await asMember.get('/organization/members')).status).toBe(200);
+    // The access token still says ADMIN; the database role wins.
+    await api.patch(`/organization/members/${member.body.user.id}`, { role: 'VIEWER' });
+    expect((await asMember.get('/organization/members')).status).toBe(403);
+    await api.delete(`/organization/members/${member.body.user.id}`);
+    const after = await asMember.get('/customers');
+    expect(after.status).toBe(401);
+  });
+
   it('is not available to analysts', async () => {
     const analyst = await signup(ctx.app);
     await api.post('/organization/invitations', { email: analyst.email, role: 'ANALYST' });

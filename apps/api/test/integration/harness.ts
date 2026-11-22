@@ -21,6 +21,7 @@ import { FileStorage } from '../../src/infra/storage.js';
 import { importJobHandlers } from '../../src/modules/imports/import.jobs.js';
 import { createPrismaClient, type PrismaClient } from '../../src/infra/prisma.js';
 import type { AuthRateLimits } from '../../src/modules/auth/rate-limits.js';
+import type { ApiRateLimits } from '../../src/modules/auth/session-policy.js';
 import { testConfig } from '../helpers/config.js';
 
 export const API = '/api/v1';
@@ -47,7 +48,11 @@ export interface TestContext {
 }
 
 export function createTestContext(
-  options: { rateLimits?: AuthRateLimits; analytics?: AnalyticsClient } = {},
+  options: {
+    rateLimits?: AuthRateLimits;
+    apiLimits?: ApiRateLimits;
+    analytics?: AnalyticsClient;
+  } = {},
 ): TestContext {
   const prisma = createPrismaClient(inject('databaseUrl'));
   const owner = createPrismaClient(inject('ownerDatabaseUrl'));
@@ -86,6 +91,10 @@ export function createTestContext(
     },
     database: db,
     rateLimits: options.rateLimits ?? GENEROUS_LIMITS,
+    apiLimits: options.apiLimits ?? {
+      requestsPerUserPerMinute: 100_000,
+      expensivePerOrgPerMinute: 10_000,
+    },
     now,
     storage,
     ...(options.analytics ? { analytics: options.analytics } : {}),

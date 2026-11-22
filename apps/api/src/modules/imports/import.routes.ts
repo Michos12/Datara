@@ -1,3 +1,4 @@
+import { pipeline } from 'node:stream/promises';
 import { importEntitySchema, importMappingRequestSchema } from '@ci/contracts';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
@@ -74,7 +75,7 @@ export function importRouter(deps: { imports: ImportService; tokens: TokenServic
   router.get('/imports/:id/errors.csv', requireRole(...IMPORTERS), async (req, res) => {
     const { stream, filename } = await imports.errorFile(getAuth(req), pathId(req));
     res.type('text/csv; charset=utf-8').attachment(filename);
-    stream.pipe(res);
+    await pipeline(stream, res);
   });
 
   return router;

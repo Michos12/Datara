@@ -13,6 +13,7 @@ import { clientIp, getAuth } from '../../core/request-context.js';
 import type { Database } from '../../infra/database.js';
 import { recordAudit } from '../audit/audit.service.js';
 import { requireAuth, requireRole } from '../auth/auth.middleware.js';
+import { limitExpensive } from '../auth/session-policy.js';
 import type { TokenService } from '../auth/tokens.js';
 import { neutralizeFormula } from '../exports/export.routes.js';
 import type { RecommendationService } from './recommendation.service.js';
@@ -61,64 +62,69 @@ export function recommendationRouter(deps: {
     res.json(await recommendations.customers(getAuth(req), pathId(req), query));
   });
 
-  router.get('/recommendations/:id/customers.csv', requireRole(...EDITORS), async (req, res) => {
-    const auth = getAuth(req);
-    const id = pathId(req);
-    const recommendation = await recommendations.get(auth, id);
-    const org = await db.run(auth, (tx) =>
-      tx.organization.findUnique({
-        where: { id: auth.organizationId },
-        select: { currency: true },
-      }),
-    );
-    const currency = org?.currency.trim() ?? 'USD';
-    const digits = currencyMinorUnits(currency);
+  router.get(
+    '/recommendations/:id/customers.csv',
+    requireRole(...EDITORS),
+    limitExpensive(deps.tokens),
+    async (req, res) => {
+      const auth = getAuth(req);
+      const id = pathId(req);
+      const recommendation = await recommendations.get(auth, id);
+      const org = await db.run(auth, (tx) =>
+        tx.organization.findUnique({
+          where: { id: auth.organizationId },
+          select: { currency: true },
+        }),
+      );
+      const currency = org?.currency.trim() ?? 'USD';
+      const digits = currencyMinorUnits(currency);
 
-    res.type('text/csv; charset=utf-8').attachment(`${recommendation.ruleKey}-customers.csv`);
-    const csv = stringify({
-      header: true,
-      bom: true,
-      columns: [
-        'customer_id',
-        'external_id',
-        'first_name',
-        'last_name',
-        'email',
-        `net_last_12_months_${currency}`,
-        'segment',
-        'last_order_date',
-      ],
-    });
-    csv.pipe(res);
-    let rows = 0;
-    for await (const c of recommendations.allCustomers(auth, id)) {
-      const cells = [
-        c.customerId,
-        c.externalId,
-        c.firstName,
-        c.lastName,
-        c.email,
-        (c.valueCents / 10 ** digits).toFixed(digits),
-        c.segment,
-        c.lastOrderDate,
-      ].map((v) => neutralizeFormula(v ?? ''));
-      if (!csv.write(cells)) await once(csv, 'drain');
-      rows++;
-    }
-    // Audit before the response ends, so the record exists once the download completes.
-    await db.run(auth, (tx) =>
-      recordAudit(tx, {
-        organizationId: auth.organizationId,
-        actorUserId: auth.userId,
-        action: 'export.recommendation_customers',
-        entityType: 'recommendation',
-        entityId: id,
-        details: { rows, rule: recommendation.ruleKey },
-        ip: clientIp(req),
-      }),
-    );
-    csv.end();
-  });
+      res.type('text/csv; charset=utf-8').attachment(`${recommendation.ruleKey}-customers.csv`);
+      const csv = stringify({
+        header: true,
+        bom: true,
+        columns: [
+          'customer_id',
+          'external_id',
+          'first_name',
+          'last_name',
+          'email',
+          `net_last_12_months_${currency}`,
+          'segment',
+          'last_order_date',
+        ],
+      });
+      csv.pipe(res);
+      let rows = 0;
+      for await (const c of recommendations.allCustomers(auth, id)) {
+        const cells = [
+          c.customerId,
+          c.externalId,
+          c.firstName,
+          c.lastName,
+          c.email,
+          (c.valueCents / 10 ** digits).toFixed(digits),
+          c.segment,
+          c.lastOrderDate,
+        ].map((v) => neutralizeFormula(v ?? ''));
+        if (!csv.write(cells)) await once(csv, 'drain');
+        rows++;
+      }
+      // Audit before the response ends, so the record exists once the download completes.
+      await db.run(auth, (tx) =>
+        recordAudit(tx, {
+          organizationId: auth.organizationId,
+          actorUserId: auth.userId,
+          action: 'export.recommendation_customers',
+          entityType: 'recommendation',
+          entityId: id,
+          details: { rows, rule: recommendation.ruleKey },
+          ip: clientIp(req),
+        }),
+      );
+      csv.end();
+    },
+  );
 
   return router;
 }

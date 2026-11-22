@@ -88,6 +88,12 @@ export const notFoundHandler: RequestHandler = (req, _res, next) => {
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   const appError = normalizeError(err);
+  if (res.headersSent) {
+    // A download failed or the client went away mid-stream: nothing more can be sent.
+    req.log.warn({ err }, 'response interrupted');
+    res.destroy();
+    return;
+  }
   if (appError.status >= 500) {
     req.log.error({ err }, 'request failed');
   } else {

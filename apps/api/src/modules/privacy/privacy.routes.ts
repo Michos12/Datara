@@ -1,9 +1,11 @@
+import { pipeline } from 'node:stream/promises';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { AppError } from '../../core/errors.js';
 import { clientIp, getAuth } from '../../core/request-context.js';
 import type { FileStorage } from '../../infra/storage.js';
 import { requireAuth, requireRole } from '../auth/auth.middleware.js';
+import { limitExpensive } from '../auth/session-policy.js';
 import { clearSessionCookies, type CookieSettings } from '../auth/cookies.js';
 import type { TokenService } from '../auth/tokens.js';
 import type { PrivacyService } from './privacy.service.js';
@@ -34,9 +36,15 @@ export function privacyRouter(deps: {
     res.status(204).end();
   });
 
-  router.post('/organization/export', auth, requireRole('OWNER'), async (req, res) => {
-    res.status(202).json({ jobId: await privacy.requestExport(getAuth(req), clientIp(req)) });
-  });
+  router.post(
+    '/organization/export',
+    auth,
+    requireRole('OWNER'),
+    limitExpensive(deps.tokens),
+    async (req, res) => {
+      res.status(202).json({ jobId: await privacy.requestExport(getAuth(req), clientIp(req)) });
+    },
+  );
 
   router.get('/organization/export/:id', auth, requireRole('OWNER'), async (req, res) => {
     const { fileKey: _key, ...job } = await privacy.exportJob(
@@ -52,12 +60,13 @@ export function privacyRouter(deps: {
       throw new AppError('NOT_FOUND', 'The export is not ready');
     }
     res.type('application/zip').attachment(job.fileName ?? 'export.zip');
-    storage.read(job.fileKey).pipe(res);
+    await pipeline(storage.read(job.fileKey), res);
   });
 
   router.delete('/organization', auth, requireRole('OWNER'), async (req, res) => {
     const { confirmName } = deleteOrgSchema.parse(req.body);
     await privacy.deleteOrganization(getAuth(req), confirmName);
+    deps.tokens.policy?.membership.forgetOrganization(getAuth(req).organizationId);
     clearSessionCookies(res, deps.cookies);
     res.status(204).end();
   });

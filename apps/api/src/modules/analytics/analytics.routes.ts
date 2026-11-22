@@ -8,6 +8,7 @@ import {
 import { Router } from 'express';
 import { clientIp, getAuth } from '../../core/request-context.js';
 import { requireAuth, requireRole } from '../auth/auth.middleware.js';
+import { limitExpensive } from '../auth/session-policy.js';
 import type { TokenService } from '../auth/tokens.js';
 import type { AnalyticsService } from './analytics.service.js';
 import type { BehaviorService } from './behavior.service.js';
@@ -66,10 +67,15 @@ export function analyticsRouter(deps: {
     res.json(await analytics.status(getAuth(req)));
   });
 
-  router.post('/analytics/runs', requireRole('OWNER', 'ADMIN', 'ANALYST'), async (req, res) => {
-    await analytics.recompute(getAuth(req), clientIp(req));
-    res.status(202).json(await analytics.status(getAuth(req)));
-  });
+  router.post(
+    '/analytics/runs',
+    requireRole('OWNER', 'ADMIN', 'ANALYST'),
+    limitExpensive(deps.tokens),
+    async (req, res) => {
+      await analytics.recompute(getAuth(req), clientIp(req));
+      res.status(202).json(await analytics.status(getAuth(req)));
+    },
+  );
 
   return router;
 }
